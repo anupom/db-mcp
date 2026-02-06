@@ -1,0 +1,80 @@
+cubes:
+  - name: Orders
+    sql_table: orders
+    title: Orders
+    description: Customer orders and transactions
+
+    measures:
+      - name: count
+        type: count
+        title: Order Count
+        description: Total number of orders
+
+      - name: total_amount
+        type: sum
+        sql: amount
+        title: Total Revenue
+        description: Sum of all order amounts
+        format: currency
+
+      - name: average_amount
+        type: avg
+        sql: amount
+        title: Average Order Value
+        description: Average amount per order
+        format: currency
+
+      - name: unique_customers
+        type: count_distinct
+        sql: user_id
+        title: Unique Customers
+        description: Number of distinct customers who placed orders
+
+    dimensions:
+      - name: id
+        sql: id
+        type: number
+        primary_key: true
+
+      - name: status
+        sql: status
+        type: string
+        title: Order Status
+        description: Current status of the order (pending, completed, cancelled)
+
+      - name: created_at
+        sql: created_at
+        type: time
+        title: Created At
+        description: When the order was placed
+
+      - name: completed_at
+        sql: completed_at
+        type: time
+        title: Completed At
+        description: When the order was completed
+
+      - name: user_id
+        sql: user_id
+        type: number
+        title: User ID
+        description: ID of the customer who placed the order
+
+      - name: product_id
+        sql: product_id
+        type: number
+        title: Product ID
+        description: ID of the ordered product
+
+    segments:
+      - name: completed_orders
+        sql: "{CUBE}.status = 'completed'"
+        title: Completed Orders
+        description: Only completed orders
+
+      - name: pending_orders
+        sql: "{CUBE}.status = 'pending'"
+        title: Pending Orders
+        description: Only pending orders
+
+    pre_aggregations: []

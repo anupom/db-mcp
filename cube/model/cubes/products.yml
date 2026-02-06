@@ -1,0 +1,63 @@
+cubes:
+  - name: Products
+    sql_table: products
+    title: Products
+    description: Product catalog
+
+    measures:
+      - name: count
+        type: count
+        title: Product Count
+        description: Total number of products
+
+      - name: total_inventory
+        type: sum
+        sql: inventory
+        title: Total Inventory
+        description: Sum of all product inventory
+
+      - name: average_price
+        type: avg
+        sql: price
+        title: Average Price
+        description: Average product price
+        format: currency
+
+    dimensions:
+      - name: id
+        sql: id
+        type: number
+        primary_key: true
+
+      - name: name
+        sql: name
+        type: string
+        title: Product Name
+        description: Name of the product
+
+      - name: category
+        sql: category
+        type: string
+        title: Category
+        description: Product category
+
+      - name: price
+        sql: price
+        type: number
+        title: Price
+        description: Product price
+        format: currency
+
+      - name: created_at
+        sql: created_at
+        type: time
+        title: Created At
+        description: When the product was added
+
+    segments:
+      - name: in_stock
+        sql: "{CUBE}.inventory > 0"
+        title: In Stock
+        description: Products with available inventory
+
+    pre_aggregations: []

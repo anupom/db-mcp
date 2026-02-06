@@ -1,0 +1,70 @@
+cubes:
+  - name: Users
+    sql_table: users
+    title: Users
+    description: Customer information
+
+    measures:
+      - name: count
+        type: count
+        title: User Count
+        description: Total number of users
+
+      - name: active_users
+        type: count
+        title: Active Users
+        description: Number of active users
+        filters:
+          - sql: "{CUBE}.status = 'active'"
+
+    dimensions:
+      - name: id
+        sql: id
+        type: number
+        primary_key: true
+
+      - name: name
+        sql: name
+        type: string
+        title: Full Name
+        description: User's full name
+
+      - name: email
+        sql: email
+        type: string
+        title: Email
+        description: User's email address
+        meta:
+          pii: true
+
+      - name: status
+        sql: status
+        type: string
+        title: Status
+        description: Account status (active, inactive)
+
+      - name: city
+        sql: city
+        type: string
+        title: City
+        description: User's city
+
+      - name: country
+        sql: country
+        type: string
+        title: Country
+        description: User's country
+
+      - name: created_at
+        sql: created_at
+        type: time
+        title: Created At
+        description: When the user registered
+
+    segments:
+      - name: active
+        sql: "{CUBE}.status = 'active'"
+        title: Active Users
+        description: Only active users
+
+    pre_aggregations: []
