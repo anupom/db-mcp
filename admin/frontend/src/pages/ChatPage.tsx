@@ -1,20 +1,13 @@
-import { useRef, useEffect, useState, FormEvent, ChangeEvent } from 'react';
+import { useRef, useEffect, useState, useMemo, FormEvent, ChangeEvent } from 'react';
 import { useChat, Chat } from '@ai-sdk/react';
-import { DefaultChatTransport } from 'ai';
+import { DefaultChatTransport, UIMessage } from 'ai';
 import { MessageCircle, Send, Loader2, AlertCircle, Trash2 } from 'lucide-react';
+import { useDatabaseContext } from '../context/DatabaseContext';
+import DatabaseSelector from '../components/shared/DatabaseSelector';
 import ChatMessage from '../components/chat/ChatMessage';
 
-// Create a chat transport that connects to our backend
-const chatTransport = new DefaultChatTransport({
-  api: '/api/chat',
-});
-
-// Create a chat instance
-const chatInstance = new Chat({
-  transport: chatTransport,
-});
-
-export default function ChatPage() {
+// Internal chat component that requires a valid chatInstance
+function ChatInterface({ chatInstance, selectedDatabaseName }: { chatInstance: Chat<UIMessage>; selectedDatabaseName?: string }) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [inputValue, setInputValue] = useState('');
 
@@ -73,18 +66,26 @@ export default function ChatPage() {
             <MessageCircle className="w-8 h-8 text-blue-600" />
             <div>
               <h1 className="text-2xl font-bold">AI Chat</h1>
-              <p className="text-gray-600">Ask questions about your data using natural language</p>
+              <p className="text-gray-600">
+                Ask questions about your data using natural language
+                {selectedDatabaseName && (
+                  <span className="text-blue-600 ml-1">({selectedDatabaseName})</span>
+                )}
+              </p>
             </div>
           </div>
-          {messages.length > 0 && (
-            <button
-              onClick={handleClearChat}
-              className="btn btn-secondary flex items-center gap-2 text-sm"
-            >
-              <Trash2 className="w-4 h-4" />
-              Clear Chat
-            </button>
-          )}
+          <div className="flex items-center gap-3">
+            {messages.length > 0 && (
+              <button
+                onClick={handleClearChat}
+                className="btn btn-secondary flex items-center gap-2 text-sm"
+              >
+                <Trash2 className="w-4 h-4" />
+                Clear Chat
+              </button>
+            )}
+            <DatabaseSelector />
+          </div>
         </div>
       </div>
 
@@ -179,5 +180,63 @@ export default function ChatPage() {
         </form>
       </div>
     </div>
+  );
+}
+
+export default function ChatPage() {
+  const { databaseId, activeDatabases } = useDatabaseContext();
+
+  // Create a new chat instance when databaseId changes
+  const chatInstance = useMemo(() => {
+    if (!databaseId) return null;
+
+    const chatTransport = new DefaultChatTransport({
+      api: `/api/chat?database=${databaseId}`,
+    });
+
+    return new Chat({
+      transport: chatTransport,
+    });
+  }, [databaseId]);
+
+  // Get selected database name
+  const selectedDatabase = activeDatabases.find((db) => db.id === databaseId);
+
+  // Show prompt if no database selected
+  if (!databaseId || !chatInstance) {
+    return (
+      <div className="h-full flex flex-col">
+        {/* Header */}
+        <div className="p-6 border-b bg-white">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <MessageCircle className="w-8 h-8 text-blue-600" />
+              <div>
+                <h1 className="text-2xl font-bold">AI Chat</h1>
+                <p className="text-gray-600">Ask questions about your data using natural language</p>
+              </div>
+            </div>
+            <DatabaseSelector />
+          </div>
+        </div>
+
+        {/* No Database Selected */}
+        <div className="flex-1 flex flex-col items-center justify-center bg-gray-50 p-6">
+          <AlertCircle className="w-16 h-16 text-yellow-500 mb-4" />
+          <h2 className="text-xl font-semibold text-gray-700 mb-2">No Database Selected</h2>
+          <p className="text-gray-500 mb-4 text-center max-w-md">
+            Select a database from the dropdown above to start chatting about your data.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <ChatInterface
+      key={databaseId}
+      chatInstance={chatInstance}
+      selectedDatabaseName={selectedDatabase?.name}
+    />
   );
 }

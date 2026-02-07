@@ -60,11 +60,11 @@ export interface TableDetails {
 }
 
 export const databaseApi = {
-  getTables: () => fetchApi<{ tables: TableInfo[] }>('/database/tables'),
-  getTableDetails: (name: string) => fetchApi<TableDetails>(`/database/tables/${name}`),
-  getSampleData: (name: string, limit = 10) =>
+  getTables: (dbId: string) => fetchApi<{ tables: TableInfo[] }>(`/database/tables?database=${dbId}`),
+  getTableDetails: (dbId: string, name: string) => fetchApi<TableDetails>(`/database/tables/${name}?database=${dbId}`),
+  getSampleData: (dbId: string, name: string, limit = 10) =>
     fetchApi<{ data: Record<string, unknown>[]; count: number }>(
-      `/database/tables/${name}/sample?limit=${limit}`
+      `/database/tables/${name}/sample?limit=${limit}&database=${dbId}`
     ),
 };
 
@@ -91,21 +91,21 @@ export interface CubeConfig {
 }
 
 export const cubesApi = {
-  getMeta: () => fetchApi<{ cubes: unknown[] }>('/cubes'),
-  generateYaml: (config: CubeConfig) =>
-    fetchApi<{ yaml: string }>('/cubes/generate', {
+  getMeta: (dbId: string) => fetchApi<{ cubes: unknown[] }>(`/cubes?database=${dbId}`),
+  generateYaml: (dbId: string, config: CubeConfig) =>
+    fetchApi<{ yaml: string }>(`/cubes/generate?database=${dbId}`, {
       method: 'POST',
       body: JSON.stringify(config),
     }),
-  listFiles: () => fetchApi<{ files: Array<{ name: string; path: string }> }>('/cubes/files'),
-  readFile: (name: string) => fetchApi<{ content: string; parsed: unknown }>(`/cubes/files/${name}`),
-  updateFile: (name: string, content: string) =>
-    fetchApi<{ success: boolean }>(`/cubes/files/${name}`, {
+  listFiles: (dbId: string) => fetchApi<{ files: Array<{ name: string; path: string }> }>(`/cubes/files?database=${dbId}`),
+  readFile: (dbId: string, name: string) => fetchApi<{ content: string; parsed: unknown }>(`/cubes/files/${name}?database=${dbId}`),
+  updateFile: (dbId: string, name: string, content: string) =>
+    fetchApi<{ success: boolean }>(`/cubes/files/${name}?database=${dbId}`, {
       method: 'PUT',
       body: JSON.stringify({ content }),
     }),
-  createFile: (fileName: string, config: CubeConfig) =>
-    fetchApi<{ success: boolean; content: string }>('/cubes/files', {
+  createFile: (dbId: string, fileName: string, config: CubeConfig) =>
+    fetchApi<{ success: boolean; content: string }>(`/cubes/files?database=${dbId}`, {
       method: 'POST',
       body: JSON.stringify({ fileName, config }),
     }),
@@ -139,25 +139,25 @@ export interface CatalogOverride {
 }
 
 export const catalogApi = {
-  getMembers: () =>
+  getMembers: (dbId: string) =>
     fetchApi<{
       members: MemberWithGovernance[];
       defaults: { exposed?: boolean; pii?: boolean };
       defaultSegments: string[];
       defaultFilters: unknown[];
-    }>('/catalog/members'),
-  getCatalog: () => fetchApi<unknown>('/catalog'),
-  updateMember: (name: string, override: CatalogOverride) =>
-    fetchApi<{ success: boolean }>(`/catalog/members/${encodeURIComponent(name)}`, {
+    }>(`/catalog/members?database=${dbId}`),
+  getCatalog: (dbId: string) => fetchApi<unknown>(`/catalog?database=${dbId}`),
+  updateMember: (dbId: string, name: string, override: CatalogOverride) =>
+    fetchApi<{ success: boolean }>(`/catalog/members/${encodeURIComponent(name)}?database=${dbId}`, {
       method: 'PUT',
       body: JSON.stringify(override),
     }),
-  removeMember: (name: string) =>
-    fetchApi<{ success: boolean }>(`/catalog/members/${encodeURIComponent(name)}`, {
+  removeMember: (dbId: string, name: string) =>
+    fetchApi<{ success: boolean }>(`/catalog/members/${encodeURIComponent(name)}?database=${dbId}`, {
       method: 'DELETE',
     }),
-  updateDefaults: (defaults: { exposed?: boolean; pii?: boolean }) =>
-    fetchApi<{ success: boolean }>('/catalog/defaults', {
+  updateDefaults: (dbId: string, defaults: { exposed?: boolean; pii?: boolean }) =>
+    fetchApi<{ success: boolean }>(`/catalog/defaults?database=${dbId}`, {
       method: 'PUT',
       body: JSON.stringify(defaults),
     }),
@@ -184,18 +184,18 @@ export interface CubeQuery {
 }
 
 export const queryApi = {
-  validate: (query: CubeQuery) =>
-    fetchApi<{ valid: boolean; errors: string[]; warnings: string[] }>('/query/validate', {
+  validate: (dbId: string, query: CubeQuery) =>
+    fetchApi<{ valid: boolean; errors: string[]; warnings: string[] }>(`/query/validate?database=${dbId}`, {
       method: 'POST',
       body: JSON.stringify(query),
     }),
-  execute: (query: CubeQuery) =>
-    fetchApi<{ data: unknown[] }>('/query/execute', {
+  execute: (dbId: string, query: CubeQuery) =>
+    fetchApi<{ data: unknown[] }>(`/query/execute?database=${dbId}`, {
       method: 'POST',
       body: JSON.stringify(query),
     }),
-  getSql: (query: CubeQuery) =>
-    fetchApi<{ sql: { sql: string[]; params: unknown[] } }>('/query/sql', {
+  getSql: (dbId: string, query: CubeQuery) =>
+    fetchApi<{ sql: { sql: string[]; params: unknown[] } }>(`/query/sql?database=${dbId}`, {
       method: 'POST',
       body: JSON.stringify(query),
     }),
@@ -227,6 +227,119 @@ export interface MCPServerInfo {
 }
 
 export const mcpApi = {
-  getInfo: () => fetchApi<MCPServerInfo>('/mcp/info'),
-  getTools: () => fetchApi<{ tools: MCPTool[] }>('/mcp/tools'),
+  getInfo: (dbId: string) => fetchApi<MCPServerInfo>(`/mcp/info?database=${dbId}`),
+  getTools: (dbId: string) => fetchApi<{ tools: MCPTool[] }>(`/mcp/tools?database=${dbId}`),
+};
+
+// Databases API (Multi-database support)
+export type DatabaseType = 'postgres' | 'mysql' | 'bigquery' | 'snowflake' | 'redshift' | 'clickhouse';
+export type DatabaseStatus = 'active' | 'inactive' | 'error' | 'initializing';
+
+export interface DatabaseConnection {
+  type: DatabaseType;
+  host?: string;
+  port?: number;
+  database?: string;
+  user?: string;
+  password?: string;
+  projectId?: string;
+  account?: string;
+  warehouse?: string;
+  ssl?: boolean;
+  options?: Record<string, unknown>;
+}
+
+export interface DatabaseConfig {
+  id: string;
+  name: string;
+  description?: string;
+  status: DatabaseStatus;
+  connection: DatabaseConnection;
+  cubeApiUrl?: string;
+  jwtSecret?: string;
+  catalogPath?: string;
+  cubeModelPath?: string;
+  maxLimit: number;
+  denyMembers: string[];
+  defaultSegments: string[];
+  returnSql: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+  lastError?: string;
+}
+
+export interface DatabaseSummary {
+  id: string;
+  name: string;
+  description?: string;
+  status: DatabaseStatus;
+  connectionType: DatabaseType;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface CreateDatabaseInput {
+  id: string;
+  name: string;
+  description?: string;
+  connection: DatabaseConnection;
+  cubeApiUrl?: string;
+  jwtSecret?: string;
+  maxLimit?: number;
+  denyMembers?: string[];
+  defaultSegments?: string[];
+  returnSql?: boolean;
+}
+
+export interface DatabaseTestResult {
+  success: boolean;
+  message: string;
+  latencyMs?: number;
+  details?: {
+    version?: string;
+    tables?: number;
+  };
+}
+
+export const databasesApi = {
+  list: () => fetchApi<{ databases: DatabaseSummary[] }>('/databases'),
+
+  get: (id: string) => fetchApi<{ database: DatabaseConfig }>(`/databases/${id}`),
+
+  create: (input: CreateDatabaseInput) =>
+    fetchApi<{ database: DatabaseConfig }>('/databases', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+
+  update: (id: string, input: Partial<CreateDatabaseInput>) =>
+    fetchApi<{ database: DatabaseConfig }>(`/databases/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(input),
+    }),
+
+  delete: (id: string) =>
+    fetchApi<{ success: boolean }>(`/databases/${id}`, {
+      method: 'DELETE',
+    }),
+
+  test: (id: string) =>
+    fetchApi<DatabaseTestResult>(`/databases/${id}/test`, {
+      method: 'POST',
+    }),
+
+  activate: (id: string) =>
+    fetchApi<{ success: boolean }>(`/databases/${id}/activate`, {
+      method: 'POST',
+    }),
+
+  deactivate: (id: string) =>
+    fetchApi<{ success: boolean }>(`/databases/${id}/deactivate`, {
+      method: 'POST',
+    }),
+
+  initializeDefault: () =>
+    fetchApi<{ success: boolean }>('/databases/initialize-default', {
+      method: 'POST',
+    }),
 };

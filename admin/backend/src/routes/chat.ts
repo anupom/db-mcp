@@ -69,6 +69,7 @@ function transformToolNamesForAnthropic<T extends Record<string, unknown>>(tools
 }
 
 router.post('/', async (req: Request, res: Response) => {
+  const databaseId = (req.query.database as string) || 'default';
   const { messages: uiMessages } = req.body as { messages: UIMessage[] };
 
   if (!uiMessages || !Array.isArray(uiMessages)) {
@@ -86,7 +87,7 @@ router.post('/', async (req: Request, res: Response) => {
 
   try {
     const mcpServerPath = getMCPServerPath();
-    console.log('Connecting to MCP server at:', mcpServerPath);
+    console.log('Connecting to MCP server at:', mcpServerPath, 'for database:', databaseId);
 
     // Create MCP transport using stdio adapter
     const transport = new StdioMCPTransportAdapter({
@@ -96,6 +97,7 @@ router.post('/', async (req: Request, res: Response) => {
         ...process.env as Record<string, string>,
         CUBE_API_URL: process.env.CUBE_API_URL || 'http://localhost:4000/cubejs-api/v1',
         CUBE_JWT_SECRET: process.env.CUBE_JWT_SECRET || 'your-super-secret-key-min-32-chars',
+        DATABASE_ID: databaseId,
       },
     });
 
