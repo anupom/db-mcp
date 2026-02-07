@@ -1,8 +1,52 @@
 import * as yaml from 'yaml';
 import * as fs from 'fs/promises';
 import { z } from 'zod';
+import { getDatabaseManager } from '../../registry/manager.js';
+import { getConfig } from '../../config.js';
 
-const CATALOG_PATH = process.env.AGENT_CATALOG_PATH || '/Users/syam/db-mcp/agent_catalog.yaml';
+// Default fallback path
+const DEFAULT_CATALOG_PATH = process.env.AGENT_CATALOG_PATH || './agent_catalog.yaml';
+
+// Get catalog path for a database
+async function getCatalogPath(databaseId: string = 'default'): Promise<string> {
+  const manager = getDatabaseManager();
+  if (!manager) {
+    // Fallback to environment variable
+    console.warn('Registry not available, falling back to environment variable for catalog path');
+    return DEFAULT_CATALOG_PATH;
+  }
+
+  const config = manager.getDatabase(databaseId);
+  if (!config) {
+    throw new Error(`Database '${databaseId}' not found in registry`);
+  }
+
+  // Get the catalog path from the registry manager
+  return manager.getCatalogPath(databaseId, config);
+}
+
+// Default Cube API config
+const DEFAULT_CUBE_API_URL = process.env.CUBE_API_URL || 'http://localhost:4000/cubejs-api/v1';
+const DEFAULT_CUBE_JWT_SECRET = process.env.CUBE_JWT_SECRET || 'your-super-secret-key-min-32-chars';
+
+// Get Cube API config for a database
+export async function getCubeApiConfig(databaseId: string = 'default'): Promise<{ cubeApiUrl: string; jwtSecret: string }> {
+  const manager = getDatabaseManager();
+  if (!manager) {
+    console.warn('Registry not available, falling back to environment variables for Cube API config');
+    return { cubeApiUrl: DEFAULT_CUBE_API_URL, jwtSecret: DEFAULT_CUBE_JWT_SECRET };
+  }
+
+  const config = manager.getDatabase(databaseId);
+  if (!config) {
+    throw new Error(`Database '${databaseId}' not found in registry`);
+  }
+
+  return {
+    cubeApiUrl: config.cubeApiUrl || DEFAULT_CUBE_API_URL,
+    jwtSecret: config.jwtSecret || DEFAULT_CUBE_JWT_SECRET,
+  };
+}
 
 // Schema matching the main project's types
 const CatalogOverrideSchema = z.object({
@@ -53,9 +97,10 @@ export interface MemberWithGovernance {
   hasOverride: boolean;
 }
 
-export async function readCatalog(): Promise<AgentCatalogConfig> {
+export async function readCatalog(databaseId?: string): Promise<AgentCatalogConfig> {
   try {
-    const content = await fs.readFile(CATALOG_PATH, 'utf-8');
+    const catalogPath = await getCatalogPath(databaseId);
+    const content = await fs.readFile(catalogPath, 'utf-8');
     const parsed = yaml.parse(content);
     return AgentCatalogConfigSchema.parse(parsed);
   } catch (error) {
@@ -70,18 +115,20 @@ export async function readCatalog(): Promise<AgentCatalogConfig> {
   }
 }
 
-export async function writeCatalog(config: AgentCatalogConfig): Promise<void> {
+export async function writeCatalog(config: AgentCatalogConfig, databaseId?: string): Promise<void> {
   // Validate before writing
   AgentCatalogConfigSchema.parse(config);
+  const catalogPath = await getCatalogPath(databaseId);
   const content = yaml.stringify(config, { lineWidth: 0 });
-  await fs.writeFile(CATALOG_PATH, content, 'utf-8');
+  await fs.writeFile(catalogPath, content, 'utf-8');
 }
 
 export async function updateMember(
   memberName: string,
-  override: CatalogOverride
+  override: CatalogOverride,
+  databaseId?: string
 ): Promise<AgentCatalogConfig> {
-  const catalog = await readCatalog();
+  const catalog = await readCatalog(databaseId);
 
   if (!catalog.members) {
     catalog.members = {};
@@ -110,23 +157,23 @@ export async function updateMember(
     delete catalog.members[memberName];
   }
 
-  await writeCatalog(catalog);
+  await writeCatalog(catalog, databaseId);
   return catalog;
 }
 
-export async function updateDefaults(defaults: { exposed?: boolean; pii?: boolean }): Promise<AgentCatalogConfig> {
-  const catalog = await readCatalog();
+export async function updateDefaults(defaults: { exposed?: boolean; pii?: boolean }, databaseId?: string): Promise<AgentCatalogConfig> {
+  const catalog = await readCatalog(databaseId);
   catalog.defaults = { ...catalog.defaults, ...defaults };
-  await writeCatalog(catalog);
+  await writeCatalog(catalog, databaseId);
   return catalog;
 }
 
-export async function removeMemberOverride(memberName: string): Promise<AgentCatalogConfig> {
-  const catalog = await readCatalog();
+export async function removeMemberOverride(memberName: string, databaseId?: string): Promise<AgentCatalogConfig> {
+  const catalog = await readCatalog(databaseId);
   if (catalog.members) {
     delete catalog.members[memberName];
   }
-  await writeCatalog(catalog);
+  await writeCatalog(catalog, databaseId);
   return catalog;
 }
 

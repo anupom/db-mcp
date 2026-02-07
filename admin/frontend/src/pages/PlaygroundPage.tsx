@@ -1,12 +1,15 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { Play, Code, AlertCircle, CheckCircle, Loader2, Download } from 'lucide-react';
 import { catalogApi, queryApi, type CubeQuery } from '../api/client';
+import { useDatabaseContext } from '../context/DatabaseContext';
+import DatabaseSelector from '../components/shared/DatabaseSelector';
 import QueryBuilder from '../components/playground/QueryBuilder';
 import ResultsTable from '../components/playground/ResultsTable';
 import SqlPreview from '../components/playground/SqlPreview';
 
 export default function PlaygroundPage() {
+  const { databaseId } = useDatabaseContext();
   const [query, setQuery] = useState<CubeQuery>({
     measures: [],
     dimensions: [],
@@ -16,17 +19,26 @@ export default function PlaygroundPage() {
   const [sql, setSql] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'results' | 'sql'>('results');
 
+  // Reset state when database changes
+  useEffect(() => {
+    setQuery({ measures: [], dimensions: [], limit: 100 });
+    setResults(null);
+    setSql(null);
+    setActiveTab('results');
+  }, [databaseId]);
+
   const { data: catalogData, isLoading: catalogLoading } = useQuery({
-    queryKey: ['catalogMembers'],
-    queryFn: () => catalogApi.getMembers(),
+    queryKey: ['catalogMembers', databaseId],
+    queryFn: () => catalogApi.getMembers(databaseId!),
+    enabled: !!databaseId,
   });
 
   const validateMutation = useMutation({
-    mutationFn: (q: CubeQuery) => queryApi.validate(q),
+    mutationFn: (q: CubeQuery) => queryApi.validate(databaseId!, q),
   });
 
   const executeMutation = useMutation({
-    mutationFn: (q: CubeQuery) => queryApi.execute(q),
+    mutationFn: (q: CubeQuery) => queryApi.execute(databaseId!, q),
     onSuccess: (data) => {
       setResults(data.data);
       setActiveTab('results');
@@ -34,7 +46,7 @@ export default function PlaygroundPage() {
   });
 
   const sqlMutation = useMutation({
-    mutationFn: (q: CubeQuery) => queryApi.getSql(q),
+    mutationFn: (q: CubeQuery) => queryApi.getSql(databaseId!, q),
     onSuccess: (data) => {
       setSql(data.sql?.sql?.join('\n') || 'No SQL generated');
       setActiveTab('sql');
@@ -42,14 +54,17 @@ export default function PlaygroundPage() {
   });
 
   const handleValidate = () => {
+    if (!databaseId) return;
     validateMutation.mutate(query);
   };
 
   const handleExecute = () => {
+    if (!databaseId) return;
     executeMutation.mutate(query);
   };
 
   const handleGetSql = () => {
+    if (!databaseId) return;
     sqlMutation.mutate(query);
   };
 
@@ -89,14 +104,41 @@ export default function PlaygroundPage() {
   const dimensions = availableMembers.filter((m) => m.type === 'dimension');
   const segments = availableMembers.filter((m) => m.type === 'segment');
 
+  // Show prompt if no database selected
+  if (!databaseId) {
+    return (
+      <div className="p-6 h-full flex flex-col">
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-3">
+            <Play className="w-8 h-8 text-blue-600" />
+            <div>
+              <h1 className="text-2xl font-bold">Query Playground</h1>
+              <p className="text-gray-600">Build and test queries against the semantic layer</p>
+            </div>
+          </div>
+          <DatabaseSelector />
+        </div>
+
+        <div className="card text-center py-16 flex-1 flex flex-col items-center justify-center">
+          <AlertCircle className="w-16 h-16 mx-auto text-yellow-500 mb-4" />
+          <h2 className="text-xl font-semibold text-gray-700 mb-2">No Database Selected</h2>
+          <p className="text-gray-500 mb-4">Select a database from the dropdown above to start querying.</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="p-6 h-full flex flex-col">
-      <div className="flex items-center gap-3 mb-6">
-        <Play className="w-8 h-8 text-blue-600" />
-        <div>
-          <h1 className="text-2xl font-bold">Query Playground</h1>
-          <p className="text-gray-600">Build and test queries against the semantic layer</p>
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-3">
+          <Play className="w-8 h-8 text-blue-600" />
+          <div>
+            <h1 className="text-2xl font-bold">Query Playground</h1>
+            <p className="text-gray-600">Build and test queries against the semantic layer</p>
+          </div>
         </div>
+        <DatabaseSelector />
       </div>
 
       <div className="grid grid-cols-12 gap-6 flex-1 min-h-0">

@@ -5,21 +5,22 @@ import {
   updateDefaults,
   removeMemberOverride,
   mergeWithCubeMeta,
+  getCubeApiConfig,
   type CatalogOverride,
 } from '../services/catalog-service.js';
 import { getCubeApiMeta } from '../services/cube-generator.js';
 
 const router = Router();
 
-const CUBE_API_URL = process.env.CUBE_API_URL || 'http://localhost:4000/cubejs-api/v1';
-const CUBE_JWT_SECRET = process.env.CUBE_JWT_SECRET || 'your-super-secret-key-min-32-chars';
-
 // GET /api/catalog/members - All members with governance status
-router.get('/members', async (_req: Request, res: Response) => {
+// Query param: ?database=<id> (default: "default")
+router.get('/members', async (req: Request, res: Response) => {
   try {
+    const databaseId = (req.query.database as string) || 'default';
+    const cubeConfig = await getCubeApiConfig(databaseId);
     const [catalog, cubeMeta] = await Promise.all([
-      readCatalog(),
-      getCubeApiMeta(CUBE_API_URL, CUBE_JWT_SECRET).catch(() => ({ cubes: [] })),
+      readCatalog(databaseId),
+      getCubeApiMeta(cubeConfig.cubeApiUrl, cubeConfig.jwtSecret, databaseId).catch(() => ({ cubes: [] })),
     ]);
 
     const members = mergeWithCubeMeta(
@@ -40,9 +41,11 @@ router.get('/members', async (_req: Request, res: Response) => {
 });
 
 // GET /api/catalog - Raw catalog config
-router.get('/', async (_req: Request, res: Response) => {
+// Query param: ?database=<id> (default: "default")
+router.get('/', async (req: Request, res: Response) => {
   try {
-    const catalog = await readCatalog();
+    const databaseId = (req.query.database as string) || 'default';
+    const catalog = await readCatalog(databaseId);
     res.json(catalog);
   } catch (error) {
     console.error('Error reading catalog:', error);
@@ -51,12 +54,14 @@ router.get('/', async (_req: Request, res: Response) => {
 });
 
 // PUT /api/catalog/members/:name - Update member governance
+// Query param: ?database=<id> (default: "default")
 router.put('/members/:name', async (req: Request, res: Response) => {
   try {
     const memberName = req.params.name;
+    const databaseId = (req.query.database as string) || 'default';
     const override = req.body as CatalogOverride;
 
-    const catalog = await updateMember(memberName, override);
+    const catalog = await updateMember(memberName, override, databaseId);
     res.json({ success: true, catalog });
   } catch (error) {
     console.error('Error updating member:', error);
@@ -66,10 +71,12 @@ router.put('/members/:name', async (req: Request, res: Response) => {
 });
 
 // DELETE /api/catalog/members/:name - Remove member override
+// Query param: ?database=<id> (default: "default")
 router.delete('/members/:name', async (req: Request, res: Response) => {
   try {
     const memberName = req.params.name;
-    const catalog = await removeMemberOverride(memberName);
+    const databaseId = (req.query.database as string) || 'default';
+    const catalog = await removeMemberOverride(memberName, databaseId);
     res.json({ success: true, catalog });
   } catch (error) {
     console.error('Error removing member override:', error);
@@ -79,10 +86,12 @@ router.delete('/members/:name', async (req: Request, res: Response) => {
 });
 
 // PUT /api/catalog/defaults - Update default settings
+// Query param: ?database=<id> (default: "default")
 router.put('/defaults', async (req: Request, res: Response) => {
   try {
+    const databaseId = (req.query.database as string) || 'default';
     const defaults = req.body as { exposed?: boolean; pii?: boolean };
-    const catalog = await updateDefaults(defaults);
+    const catalog = await updateDefaults(defaults, databaseId);
     res.json({ success: true, catalog });
   } catch (error) {
     console.error('Error updating defaults:', error);

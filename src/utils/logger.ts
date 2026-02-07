@@ -44,6 +44,7 @@ export interface AuditLogEntry {
   query_hash?: string;
   members?: string[];
   row_count?: number;
+  databaseId?: string; // For multi-database support
 }
 
 export function auditLog(entry: AuditLogEntry): void {

@@ -1,12 +1,68 @@
 import { Pool } from 'pg';
+import { getDatabaseManager } from '../../registry/manager.js';
 
-const pool = new Pool({
-  host: process.env.POSTGRES_HOST || 'localhost',
-  port: parseInt(process.env.POSTGRES_PORT || '5432'),
-  database: process.env.POSTGRES_DB || 'ecom',
-  user: process.env.POSTGRES_USER || 'cube',
-  password: process.env.POSTGRES_PASSWORD || 'cube',
-});
+// Pool cache by database ID
+const pools = new Map<string, Pool>();
+
+// Get a database pool from the registry
+async function getPool(databaseId: string = 'default'): Promise<Pool> {
+  // Check cache first
+  if (pools.has(databaseId)) {
+    return pools.get(databaseId)!;
+  }
+
+  const manager = getDatabaseManager();
+  if (!manager) {
+    // Fallback to environment variables for backward compatibility
+    console.warn('Registry not available, falling back to environment variables');
+    const fallbackPool = new Pool({
+      host: process.env.POSTGRES_HOST || 'localhost',
+      port: parseInt(process.env.POSTGRES_PORT || '5432'),
+      database: process.env.POSTGRES_DB || 'ecom',
+      user: process.env.POSTGRES_USER || 'cube',
+      password: process.env.POSTGRES_PASSWORD || 'cube',
+    });
+    pools.set(databaseId, fallbackPool);
+    return fallbackPool;
+  }
+
+  const config = manager.getDatabase(databaseId);
+  if (!config) {
+    throw new Error(`Database '${databaseId}' not found in registry`);
+  }
+
+  if (config.connection.type !== 'postgres') {
+    throw new Error(`Database '${databaseId}' is not a PostgreSQL database (type: ${config.connection.type})`);
+  }
+
+  const pool = new Pool({
+    host: config.connection.host || 'localhost',
+    port: config.connection.port || 5432,
+    database: config.connection.database,
+    user: config.connection.user,
+    password: config.connection.password,
+    ssl: config.connection.ssl ? { rejectUnauthorized: false } : undefined,
+  });
+
+  pools.set(databaseId, pool);
+  return pool;
+}
+
+// Clear pool cache (useful when database config changes)
+export function clearPoolCache(databaseId?: string): void {
+  if (databaseId) {
+    const pool = pools.get(databaseId);
+    if (pool) {
+      pool.end().catch(console.error);
+      pools.delete(databaseId);
+    }
+  } else {
+    for (const pool of pools.values()) {
+      pool.end().catch(console.error);
+    }
+    pools.clear();
+  }
+}
 
 export interface TableColumn {
   column_name: string;
@@ -45,7 +101,9 @@ export interface SuggestedDimension {
   primaryKey?: boolean;
 }
 
-export async function getTables(): Promise<TableInfo[]> {
+export async function getTables(databaseId?: string): Promise<TableInfo[]> {
+  const pool = await getPool(databaseId);
+
   const tablesResult = await pool.query(`
     SELECT table_name, table_schema
     FROM information_schema.tables
@@ -77,12 +135,14 @@ export async function getTables(): Promise<TableInfo[]> {
   return tables;
 }
 
-export async function getTableDetails(tableName: string): Promise<{
+export async function getTableDetails(tableName: string, databaseId?: string): Promise<{
   table: TableInfo;
   foreignKeys: ForeignKey[];
   suggestedMeasures: SuggestedMeasure[];
   suggestedDimensions: SuggestedDimension[];
 }> {
+  const pool = await getPool(databaseId);
+
   const columnsResult = await pool.query<TableColumn>(
     `
     SELECT column_name, data_type, is_nullable, column_default, character_maximum_length
@@ -180,8 +240,11 @@ export async function getTableDetails(tableName: string): Promise<{
 
 export async function getSampleData(
   tableName: string,
-  limit: number = 10
+  limit: number = 10,
+  databaseId?: string
 ): Promise<Record<string, unknown>[]> {
+  const pool = await getPool(databaseId);
+
   // Validate table name to prevent SQL injection
   const tableCheck = await pool.query(
     `SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = $1`,
@@ -196,8 +259,9 @@ export async function getSampleData(
   return result.rows;
 }
 
-export async function healthCheck(): Promise<boolean> {
+export async function healthCheck(databaseId?: string): Promise<boolean> {
   try {
+    const pool = await getPool(databaseId);
     await pool.query('SELECT 1');
     return true;
   } catch {
@@ -256,4 +320,5 @@ function capitalize(str: string): string {
   return str.charAt(0).toUpperCase() + str.slice(1);
 }
 
-export { pool };
+// Export getPool for direct access when needed
+export { getPool };

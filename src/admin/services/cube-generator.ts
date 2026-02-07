@@ -1,8 +1,28 @@
 import * as yaml from 'yaml';
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { getDatabaseManager } from '../../registry/manager.js';
 
-const CUBE_MODEL_PATH = process.env.CUBE_MODEL_PATH || '/Users/syam/db-mcp/cube/model/cubes';
+// Default fallback path
+const DEFAULT_CUBE_MODEL_PATH = process.env.CUBE_MODEL_PATH || './cube/model/cubes';
+
+// Get cube model path for a database
+async function getCubeModelPath(databaseId: string = 'default'): Promise<string> {
+  const manager = getDatabaseManager();
+  if (!manager) {
+    // Fallback to environment variable
+    console.warn('Registry not available, falling back to environment variable for cube model path');
+    return DEFAULT_CUBE_MODEL_PATH;
+  }
+
+  const config = manager.getDatabase(databaseId);
+  if (!config) {
+    throw new Error(`Database '${databaseId}' not found in registry`);
+  }
+
+  // Get the cube model path from the registry manager
+  return manager.getCubeModelPath(databaseId, config) + '/cubes';
+}
 
 export interface MeasureConfig {
   name: string;
@@ -83,48 +103,53 @@ export function generateCubeYaml(config: CubeConfig): string {
   return yaml.stringify(cube, { lineWidth: 0 });
 }
 
-export async function listCubeFiles(): Promise<Array<{ name: string; path: string }>> {
+export async function listCubeFiles(databaseId?: string): Promise<Array<{ name: string; path: string }>> {
   try {
-    const files = await fs.readdir(CUBE_MODEL_PATH);
+    const cubeModelPath = await getCubeModelPath(databaseId);
+    const files = await fs.readdir(cubeModelPath);
     const yamlFiles = files.filter((f) => f.endsWith('.yml') || f.endsWith('.yaml'));
     return yamlFiles.map((f) => ({
       name: f.replace(/\.(yml|yaml)$/, ''),
-      path: path.join(CUBE_MODEL_PATH, f),
+      path: path.join(cubeModelPath, f),
     }));
   } catch {
     return [];
   }
 }
 
-export async function readCubeFile(fileName: string): Promise<{ content: string; parsed: unknown }> {
-  const filePath = path.join(CUBE_MODEL_PATH, fileName.endsWith('.yml') ? fileName : `${fileName}.yml`);
+export async function readCubeFile(fileName: string, databaseId?: string): Promise<{ content: string; parsed: unknown }> {
+  const cubeModelPath = await getCubeModelPath(databaseId);
+  const filePath = path.join(cubeModelPath, fileName.endsWith('.yml') ? fileName : `${fileName}.yml`);
   const content = await fs.readFile(filePath, 'utf-8');
   const parsed = yaml.parse(content);
   return { content, parsed };
 }
 
-export async function writeCubeFile(fileName: string, content: string): Promise<void> {
-  const filePath = path.join(CUBE_MODEL_PATH, fileName.endsWith('.yml') ? fileName : `${fileName}.yml`);
+export async function writeCubeFile(fileName: string, content: string, databaseId?: string): Promise<void> {
+  const cubeModelPath = await getCubeModelPath(databaseId);
+  const filePath = path.join(cubeModelPath, fileName.endsWith('.yml') ? fileName : `${fileName}.yml`);
   // Validate YAML before writing
   yaml.parse(content);
   await fs.writeFile(filePath, content, 'utf-8');
 }
 
-export async function createCubeFile(fileName: string, config: CubeConfig): Promise<string> {
+export async function createCubeFile(fileName: string, config: CubeConfig, databaseId?: string): Promise<string> {
   const content = generateCubeYaml(config);
-  await writeCubeFile(fileName, content);
+  await writeCubeFile(fileName, content, databaseId);
   return content;
 }
 
-export async function getCubeApiMeta(cubeApiUrl: string, jwtSecret: string): Promise<unknown> {
+export async function getCubeApiMeta(cubeApiUrl: string, jwtSecret: string, databaseId?: string): Promise<unknown> {
   const jwt = await import('jsonwebtoken').catch(() => null);
 
   let token: string;
+  const payload = databaseId ? { databaseId } : {};
+
   if (jwt) {
-    token = jwt.default.sign({}, jwtSecret, { expiresIn: '1h' });
+    token = jwt.default.sign(payload, jwtSecret, { expiresIn: '1h' });
   } else {
     // Fallback: simple base64 token for development
-    token = Buffer.from(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 3600 })).toString('base64');
+    token = Buffer.from(JSON.stringify({ ...payload, exp: Math.floor(Date.now() / 1000) + 3600 })).toString('base64');
   }
 
   const response = await fetch(`${cubeApiUrl}/meta`, {

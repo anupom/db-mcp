@@ -2,7 +2,7 @@ import Fuse from 'fuse.js';
 import { readFile } from 'fs/promises';
 import { parse as parseYaml } from 'yaml';
 import { getConfig } from '../config.js';
-import { getCubeClient } from '../cube/client.js';
+import type { CubeClient } from '../cube/client.js';
 import { unknownMemberError, catalogError } from '../errors.js';
 import { getLogger } from '../utils/logger.js';
 import type { CubeMember, AgentCatalogConfig, MemberType } from '../types.js';
@@ -14,12 +14,35 @@ import type {
 } from './types.js';
 import type { CubeMetaResponse } from '../cube/types.js';
 
+/**
+ * Configuration for creating a CatalogIndex instance
+ */
+export interface CatalogIndexConfig {
+  catalogPath?: string;
+  databaseId?: string;
+}
+
 export class CatalogIndex {
   private members: Map<string, IndexedMember> = new Map();
   private fuse: Fuse<IndexedMember> | null = null;
   private catalogConfig: AgentCatalogConfig | null = null;
   private logger = getLogger().child({ component: 'CatalogIndex' });
   private initialized = false;
+
+  private catalogPath: string;
+  private cubeClient: CubeClient;
+  private databaseId?: string;
+
+  constructor(config: CatalogIndexConfig, cubeClient: CubeClient) {
+    const globalConfig = getConfig();
+    this.catalogPath = config.catalogPath ?? globalConfig.AGENT_CATALOG_PATH;
+    this.cubeClient = cubeClient;
+    this.databaseId = config.databaseId;
+
+    if (this.databaseId) {
+      this.logger = this.logger.child({ databaseId: this.databaseId });
+    }
+  }
 
   async initialize(): Promise<void> {
     if (this.initialized) return;
@@ -30,8 +53,7 @@ export class CatalogIndex {
     await this.loadCatalogConfig();
 
     // Fetch Cube metadata and build index
-    const cubeClient = getCubeClient();
-    const meta = await cubeClient.getMeta();
+    const meta = await this.cubeClient.getMeta();
     this.buildIndex(meta);
 
     this.initialized = true;
@@ -39,14 +61,13 @@ export class CatalogIndex {
   }
 
   private async loadCatalogConfig(): Promise<void> {
-    const config = getConfig();
     try {
-      const content = await readFile(config.AGENT_CATALOG_PATH, 'utf-8');
+      const content = await readFile(this.catalogPath, 'utf-8');
       this.catalogConfig = parseYaml(content) as AgentCatalogConfig;
-      this.logger.debug({ path: config.AGENT_CATALOG_PATH }, 'Loaded agent catalog config');
+      this.logger.debug({ path: this.catalogPath }, 'Loaded agent catalog config');
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-        this.logger.warn({ path: config.AGENT_CATALOG_PATH }, 'Agent catalog file not found, using defaults');
+        this.logger.warn({ path: this.catalogPath }, 'Agent catalog file not found, using defaults');
         this.catalogConfig = { version: '1.0' };
       } else {
         throw catalogError(`Failed to load agent catalog: ${(err as Error).message}`);
@@ -254,12 +275,12 @@ export class CatalogIndex {
   }
 }
 
-let defaultCatalog: CatalogIndex | null = null;
-
-export async function getCatalogIndex(): Promise<CatalogIndex> {
-  if (!defaultCatalog) {
-    defaultCatalog = new CatalogIndex();
-    await defaultCatalog.initialize();
-  }
-  return defaultCatalog;
+/**
+ * Create a new CatalogIndex instance with specific configuration
+ */
+export function createCatalogIndex(
+  config: CatalogIndexConfig,
+  cubeClient: CubeClient
+): CatalogIndex {
+  return new CatalogIndex(config, cubeClient);
 }

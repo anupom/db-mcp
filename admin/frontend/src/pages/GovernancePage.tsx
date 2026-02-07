@@ -1,7 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Shield, Search, Filter, Loader2, AlertTriangle } from 'lucide-react';
+import { Shield, Search, Filter, Loader2, AlertTriangle, AlertCircle } from 'lucide-react';
 import { catalogApi, type MemberWithGovernance, type CatalogOverride } from '../api/client';
+import { useDatabaseContext } from '../context/DatabaseContext';
+import DatabaseSelector from '../components/shared/DatabaseSelector';
 import MemberList from '../components/governance/MemberList';
 import MemberEditorDrawer from '../components/governance/MemberEditorDrawer';
 
@@ -9,6 +11,7 @@ type FilterType = 'all' | 'measure' | 'dimension' | 'segment';
 type StatusFilter = 'all' | 'exposed' | 'hidden' | 'pii' | 'override';
 
 export default function GovernancePage() {
+  const { databaseId } = useDatabaseContext();
   const [selectedMember, setSelectedMember] = useState<MemberWithGovernance | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [typeFilter, setTypeFilter] = useState<FilterType>('all');
@@ -16,33 +19,42 @@ export default function GovernancePage() {
 
   const queryClient = useQueryClient();
 
+  // Reset filters when database changes
+  useEffect(() => {
+    setSelectedMember(null);
+    setSearchTerm('');
+    setTypeFilter('all');
+    setStatusFilter('all');
+  }, [databaseId]);
+
   const { data, isLoading, error } = useQuery({
-    queryKey: ['catalogMembers'],
-    queryFn: () => catalogApi.getMembers(),
+    queryKey: ['catalogMembers', databaseId],
+    queryFn: () => catalogApi.getMembers(databaseId!),
+    enabled: !!databaseId,
   });
 
   const updateMutation = useMutation({
     mutationFn: ({ name, override }: { name: string; override: CatalogOverride }) =>
-      catalogApi.updateMember(name, override),
+      catalogApi.updateMember(databaseId!, name, override),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['catalogMembers'] });
+      queryClient.invalidateQueries({ queryKey: ['catalogMembers', databaseId] });
       setSelectedMember(null);
     },
   });
 
   const removeMutation = useMutation({
-    mutationFn: (name: string) => catalogApi.removeMember(name),
+    mutationFn: (name: string) => catalogApi.removeMember(databaseId!, name),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['catalogMembers'] });
+      queryClient.invalidateQueries({ queryKey: ['catalogMembers', databaseId] });
       setSelectedMember(null);
     },
   });
 
   const updateDefaultsMutation = useMutation({
     mutationFn: (defaults: { exposed?: boolean; pii?: boolean }) =>
-      catalogApi.updateDefaults(defaults),
+      catalogApi.updateDefaults(databaseId!, defaults),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['catalogMembers'] });
+      queryClient.invalidateQueries({ queryKey: ['catalogMembers', databaseId] });
     },
   });
 
@@ -83,9 +95,44 @@ export default function GovernancePage() {
     overrides: data?.members.filter((m) => m.hasOverride).length || 0,
   };
 
+  // Show prompt if no database selected
+  if (!databaseId) {
+    return (
+      <div className="p-6">
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-3">
+            <Shield className="w-8 h-8 text-blue-600" />
+            <div>
+              <h1 className="text-2xl font-bold">Governance</h1>
+              <p className="text-gray-600">Manage member visibility and access controls</p>
+            </div>
+          </div>
+          <DatabaseSelector />
+        </div>
+
+        <div className="card text-center py-16">
+          <AlertCircle className="w-16 h-16 mx-auto text-yellow-500 mb-4" />
+          <h2 className="text-xl font-semibold text-gray-700 mb-2">No Database Selected</h2>
+          <p className="text-gray-500 mb-4">Select a database from the dropdown above to manage governance settings.</p>
+        </div>
+      </div>
+    );
+  }
+
   if (error) {
     return (
       <div className="p-6">
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-3">
+            <Shield className="w-8 h-8 text-blue-600" />
+            <div>
+              <h1 className="text-2xl font-bold">Governance</h1>
+              <p className="text-gray-600">Manage member visibility and access controls</p>
+            </div>
+          </div>
+          <DatabaseSelector />
+        </div>
+
         <div className="card bg-red-50 border border-red-200">
           <div className="flex items-center gap-3 text-red-700">
             <AlertTriangle className="w-6 h-6" />
@@ -101,12 +148,15 @@ export default function GovernancePage() {
 
   return (
     <div className="p-6">
-      <div className="flex items-center gap-3 mb-6">
-        <Shield className="w-8 h-8 text-blue-600" />
-        <div>
-          <h1 className="text-2xl font-bold">Governance</h1>
-          <p className="text-gray-600">Manage member visibility and access controls</p>
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-3">
+          <Shield className="w-8 h-8 text-blue-600" />
+          <div>
+            <h1 className="text-2xl font-bold">Governance</h1>
+            <p className="text-gray-600">Manage member visibility and access controls</p>
+          </div>
         </div>
+        <DatabaseSelector />
       </div>
 
       {/* Stats */}

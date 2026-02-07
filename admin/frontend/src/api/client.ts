@@ -97,6 +97,16 @@ export const cubesApi = {
       method: 'POST',
       body: JSON.stringify(config),
     }),
+  generateEnhanced: (
+    dbId: string,
+    tableName: string,
+    initialConfig: CubeConfig,
+    sampleData?: Record<string, unknown>[]
+  ) =>
+    fetchApi<{ config: CubeConfig; yaml: string }>(`/cubes/generate-enhanced?database=${dbId}`, {
+      method: 'POST',
+      body: JSON.stringify({ tableName, initialConfig, sampleData }),
+    }),
   listFiles: (dbId: string) => fetchApi<{ files: Array<{ name: string; path: string }> }>(`/cubes/files?database=${dbId}`),
   readFile: (dbId: string, name: string) => fetchApi<{ content: string; parsed: unknown }>(`/cubes/files/${name}?database=${dbId}`),
   updateFile: (dbId: string, name: string, content: string) =>
@@ -329,12 +339,20 @@ export const databasesApi = {
     }),
 
   activate: (id: string) =>
-    fetchApi<{ success: boolean }>(`/databases/${id}/activate`, {
+    fetchApi<{
+      success: boolean;
+      cubeRestartRequired?: boolean;
+      cubeRestartMessage?: string;
+    }>(`/databases/${id}/activate`, {
       method: 'POST',
     }),
 
   deactivate: (id: string) =>
-    fetchApi<{ success: boolean }>(`/databases/${id}/deactivate`, {
+    fetchApi<{
+      success: boolean;
+      cubeRestartRequired?: boolean;
+      cubeRestartMessage?: string;
+    }>(`/databases/${id}/deactivate`, {
       method: 'POST',
     }),
 

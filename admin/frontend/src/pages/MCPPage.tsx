@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Plug, ChevronDown, ChevronRight, Copy, Check, Loader2, AlertTriangle, Server, Terminal, Globe } from 'lucide-react';
+import { Plug, ChevronDown, ChevronRight, Copy, Check, Loader2, AlertTriangle, AlertCircle, Server, Terminal, Globe } from 'lucide-react';
 import { mcpApi, type MCPTool } from '../api/client';
+import { useDatabaseContext } from '../context/DatabaseContext';
+import DatabaseSelector from '../components/shared/DatabaseSelector';
 
 function ToolCard({ tool, isExpanded, onToggle }: { tool: MCPTool; isExpanded: boolean; onToggle: () => void }) {
   const [copied, setCopied] = useState(false);
@@ -62,19 +64,24 @@ function ToolCard({ tool, isExpanded, onToggle }: { tool: MCPTool; isExpanded: b
 }
 
 export default function MCPPage() {
+  const { databaseId, activeDatabases } = useDatabaseContext();
   const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set(['catalog.search']));
   const [copiedSnippet, setCopiedSnippet] = useState(false);
   const [copiedCurl, setCopiedCurl] = useState(false);
   const [copiedEndpoint, setCopiedEndpoint] = useState(false);
 
+  const selectedDatabase = activeDatabases.find((db) => db.id === databaseId);
+
   const { data: serverInfo, isLoading: infoLoading, error: infoError } = useQuery({
-    queryKey: ['mcpInfo'],
-    queryFn: () => mcpApi.getInfo(),
+    queryKey: ['mcpInfo', databaseId],
+    queryFn: () => mcpApi.getInfo(databaseId!),
+    enabled: !!databaseId,
   });
 
   const { data: toolsData, isLoading: toolsLoading, error: toolsError } = useQuery({
-    queryKey: ['mcpTools'],
-    queryFn: () => mcpApi.getTools(),
+    queryKey: ['mcpTools', databaseId],
+    queryFn: () => mcpApi.getTools(databaseId!),
+    enabled: !!databaseId,
   });
 
   const toggleTool = (name: string) => {
@@ -89,20 +96,24 @@ export default function MCPPage() {
     });
   };
 
-  const integrationSnippet = serverInfo
+  // Build the endpoint URL with databaseId
+  const mcpEndpoint = databaseId ? `/mcp/${databaseId}` : '';
+  const fullEndpoint = typeof window !== 'undefined' ? `${window.location.origin}${mcpEndpoint}` : mcpEndpoint;
+
+  const integrationSnippet = serverInfo && databaseId
     ? `{
   "mcpServers": {
-    "${serverInfo.name}": {
+    "${serverInfo.name}-${databaseId}": {
       "command": "node",
-      "args": ["dist/index.js"],
+      "args": ["dist/index.js", "--database", "${databaseId}"],
       "cwd": "/path/to/${serverInfo.name}"
     }
   }
 }`
     : '';
 
-  const curlExample = serverInfo?.endpoint
-    ? `curl -X POST ${serverInfo.endpoint} \\
+  const curlExample = databaseId
+    ? `curl -X POST ${fullEndpoint} \\
   -H "Content-Type: application/json" \\
   -d '{"jsonrpc":"2.0","method":"tools/list","id":1}'`
     : '';
@@ -120,8 +131,8 @@ export default function MCPPage() {
   };
 
   const copyEndpoint = () => {
-    if (serverInfo?.endpoint) {
-      navigator.clipboard.writeText(serverInfo.endpoint);
+    if (fullEndpoint) {
+      navigator.clipboard.writeText(fullEndpoint);
       setCopiedEndpoint(true);
       setTimeout(() => setCopiedEndpoint(false), 2000);
     }
@@ -130,9 +141,44 @@ export default function MCPPage() {
   const isLoading = infoLoading || toolsLoading;
   const error = infoError || toolsError;
 
+  // Show prompt if no database selected
+  if (!databaseId) {
+    return (
+      <div className="p-6">
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-3">
+            <Plug className="w-8 h-8 text-blue-600" />
+            <div>
+              <h1 className="text-2xl font-bold">MCP Server</h1>
+              <p className="text-gray-600">Tool definitions and integration information</p>
+            </div>
+          </div>
+          <DatabaseSelector />
+        </div>
+
+        <div className="card text-center py-16">
+          <AlertCircle className="w-16 h-16 mx-auto text-yellow-500 mb-4" />
+          <h2 className="text-xl font-semibold text-gray-700 mb-2">No Database Selected</h2>
+          <p className="text-gray-500 mb-4">Select a database from the dropdown above to view MCP endpoint information.</p>
+        </div>
+      </div>
+    );
+  }
+
   if (error) {
     return (
       <div className="p-6">
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-3">
+            <Plug className="w-8 h-8 text-blue-600" />
+            <div>
+              <h1 className="text-2xl font-bold">MCP Server</h1>
+              <p className="text-gray-600">Tool definitions and integration information</p>
+            </div>
+          </div>
+          <DatabaseSelector />
+        </div>
+
         <div className="card bg-red-50 border border-red-200">
           <div className="flex items-center gap-3 text-red-700">
             <AlertTriangle className="w-6 h-6" />
@@ -148,12 +194,20 @@ export default function MCPPage() {
 
   return (
     <div className="p-6">
-      <div className="flex items-center gap-3 mb-6">
-        <Plug className="w-8 h-8 text-blue-600" />
-        <div>
-          <h1 className="text-2xl font-bold">MCP Server</h1>
-          <p className="text-gray-600">Tool definitions and integration information</p>
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-3">
+          <Plug className="w-8 h-8 text-blue-600" />
+          <div>
+            <h1 className="text-2xl font-bold">MCP Server</h1>
+            <p className="text-gray-600">
+              Tool definitions and integration information
+              {selectedDatabase && (
+                <span className="text-blue-600 ml-1">({selectedDatabase.name})</span>
+              )}
+            </p>
+          </div>
         </div>
+        <DatabaseSelector />
       </div>
 
       {isLoading ? (
@@ -189,71 +243,69 @@ export default function MCPPage() {
                 </div>
               </div>
               <div>
-                <p className="text-sm text-gray-500">Command</p>
-                <p className="font-mono font-medium">{serverInfo?.command}</p>
+                <p className="text-sm text-gray-500">Database</p>
+                <p className="font-mono font-medium">{databaseId}</p>
               </div>
             </div>
             <p className="text-sm text-gray-600">{serverInfo?.description}</p>
           </div>
 
           {/* HTTP Connection Card */}
-          {serverInfo?.transports.http && serverInfo?.endpoint && (
-            <div className="card mb-6">
-              <div className="flex items-center gap-2 mb-4">
-                <Globe className="w-5 h-5 text-green-600" />
-                <h2 className="text-lg font-semibold">HTTP Connection</h2>
-                <span className="ml-auto px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full font-medium">
-                  Streamable HTTP
-                </span>
-              </div>
+          <div className="card mb-6">
+            <div className="flex items-center gap-2 mb-4">
+              <Globe className="w-5 h-5 text-green-600" />
+              <h2 className="text-lg font-semibold">HTTP Connection</h2>
+              <span className="ml-auto px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full font-medium">
+                Streamable HTTP
+              </span>
+            </div>
 
-              {/* Endpoint URL */}
-              <div className="mb-4">
-                <p className="text-sm text-gray-500 mb-2">Endpoint URL</p>
-                <div className="flex items-center gap-2">
-                  <code className="flex-1 bg-gray-100 px-3 py-2 rounded-lg font-mono text-sm">
-                    {serverInfo.endpoint}
-                  </code>
-                  <button
-                    onClick={copyEndpoint}
-                    className="btn btn-secondary text-xs py-2 px-3 flex items-center gap-1"
-                  >
-                    {copiedEndpoint ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                    {copiedEndpoint ? 'Copied' : 'Copy'}
-                  </button>
-                </div>
-              </div>
-
-              {/* Connection Info */}
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
-                <h4 className="font-medium text-blue-900 mb-2">How to Connect</h4>
-                <ul className="text-sm text-blue-800 space-y-1">
-                  <li>1. Send a POST request to initialize a session (no session ID required)</li>
-                  <li>2. Use the returned <code className="bg-blue-100 px-1 rounded">mcp-session-id</code> header for subsequent requests</li>
-                  <li>3. For streaming responses, use GET with the session ID</li>
-                  <li>4. Send DELETE to close the session when done</li>
-                </ul>
-              </div>
-
-              {/* Curl Example */}
-              <div className="border-t pt-4">
-                <div className="flex items-center gap-2 mb-3">
-                  <Terminal className="w-4 h-4 text-gray-500" />
-                  <span className="text-sm font-medium text-gray-700">Test with curl</span>
-                  <button
-                    onClick={copyCurlExample}
-                    className="btn btn-secondary text-xs py-1 px-2 flex items-center gap-1 ml-auto"
-                  >
-                    {copiedCurl ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                    {copiedCurl ? 'Copied' : 'Copy'}
-                  </button>
-                </div>
-                <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg text-sm overflow-x-auto">
-                  {curlExample}
-                </pre>
+            {/* Endpoint URL */}
+            <div className="mb-4">
+              <p className="text-sm text-gray-500 mb-2">Endpoint URL (for database: {databaseId})</p>
+              <div className="flex items-center gap-2">
+                <code className="flex-1 bg-gray-100 px-3 py-2 rounded-lg font-mono text-sm">
+                  {fullEndpoint}
+                </code>
+                <button
+                  onClick={copyEndpoint}
+                  className="btn btn-secondary text-xs py-2 px-3 flex items-center gap-1"
+                >
+                  {copiedEndpoint ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                  {copiedEndpoint ? 'Copied' : 'Copy'}
+                </button>
               </div>
             </div>
-          )}
+
+            {/* Connection Info */}
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+              <h4 className="font-medium text-blue-900 mb-2">How to Connect</h4>
+              <ul className="text-sm text-blue-800 space-y-1">
+                <li>1. Send a POST request to initialize a session (no session ID required)</li>
+                <li>2. Use the returned <code className="bg-blue-100 px-1 rounded">mcp-session-id</code> header for subsequent requests</li>
+                <li>3. For streaming responses, use GET with the session ID</li>
+                <li>4. Send DELETE to close the session when done</li>
+              </ul>
+            </div>
+
+            {/* Curl Example */}
+            <div className="border-t pt-4">
+              <div className="flex items-center gap-2 mb-3">
+                <Terminal className="w-4 h-4 text-gray-500" />
+                <span className="text-sm font-medium text-gray-700">Test with curl</span>
+                <button
+                  onClick={copyCurlExample}
+                  className="btn btn-secondary text-xs py-1 px-2 flex items-center gap-1 ml-auto"
+                >
+                  {copiedCurl ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                  {copiedCurl ? 'Copied' : 'Copy'}
+                </button>
+              </div>
+              <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg text-sm overflow-x-auto">
+                {curlExample}
+              </pre>
+            </div>
+          </div>
 
           {/* Claude Desktop Integration (for stdio transport) */}
           {serverInfo?.transports.stdio && (
@@ -266,7 +318,7 @@ export default function MCPPage() {
                 </span>
               </div>
               <p className="text-sm text-gray-600 mb-4">
-                For local development with Claude Desktop, add this to your Claude Desktop config:
+                For local development with Claude Desktop, add this to your Claude Desktop config (configured for database: <code className="bg-gray-100 px-1 rounded">{databaseId}</code>):
               </p>
               <div className="flex items-center gap-2 mb-3">
                 <button

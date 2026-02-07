@@ -1,5 +1,5 @@
 import { getConfig } from '../config.js';
-import { getCatalogIndex } from '../catalog/index.js';
+import type { CatalogIndex } from '../catalog/index.js';
 import {
   missingLimitError,
   limitTooHighError,
@@ -10,7 +10,7 @@ import {
   queryKeyNotAllowedError,
 } from '../errors.js';
 import { getLogger } from '../utils/logger.js';
-import type { CubeQuery, ALLOWED_QUERY_KEYS } from '../types.js';
+import type { CubeQuery } from '../types.js';
 import type { PolicyConfig, PolicyContext } from './types.js';
 
 const ALLOWED_KEYS = new Set<string>([
@@ -24,19 +24,44 @@ const ALLOWED_KEYS = new Set<string>([
   'offset',
 ]);
 
+/**
+ * Configuration for creating a PolicyEnforcer instance
+ */
+export interface PolicyEnforcerConfig extends Partial<PolicyConfig> {
+  databaseId?: string;
+}
+
 export class PolicyEnforcer {
   private config: PolicyConfig;
   private logger = getLogger().child({ component: 'PolicyEnforcer' });
+  private catalogIndex: CatalogIndex;
+  private databaseId?: string;
 
-  constructor(config?: Partial<PolicyConfig>) {
+  constructor(config: PolicyEnforcerConfig, catalogIndex: CatalogIndex) {
     const envConfig = getConfig();
     this.config = {
-      maxLimit: config?.maxLimit ?? envConfig.MAX_LIMIT,
-      denyMembers: config?.denyMembers ?? envConfig.DENY_MEMBERS,
-      returnSql: config?.returnSql ?? envConfig.RETURN_SQL,
-      defaultSegments: config?.defaultSegments ?? [],
-      defaultFilters: config?.defaultFilters ?? [],
+      maxLimit: config.maxLimit ?? envConfig.MAX_LIMIT,
+      denyMembers: config.denyMembers ?? envConfig.DENY_MEMBERS,
+      returnSql: config.returnSql ?? envConfig.RETURN_SQL,
+      defaultSegments: config.defaultSegments ?? [],
+      defaultFilters: config.defaultFilters ?? [],
     };
+    this.catalogIndex = catalogIndex;
+    this.databaseId = config.databaseId;
+
+    if (this.databaseId) {
+      this.logger = this.logger.child({ databaseId: this.databaseId });
+    }
+  }
+
+  /**
+   * Get the catalog index
+   */
+  private async getCatalog(): Promise<CatalogIndex> {
+    if (!this.catalogIndex.isInitialized()) {
+      await this.catalogIndex.initialize();
+    }
+    return this.catalogIndex;
   }
 
   async validate(query: CubeQuery): Promise<void> {
@@ -58,7 +83,7 @@ export class PolicyEnforcer {
       throw limitTooHighError(query.limit, this.config.maxLimit);
     }
 
-    const catalog = await getCatalogIndex();
+    const catalog = await this.getCatalog();
 
     // Collect all members to validate (with defensive array checks)
     const allMembers: string[] = [];
@@ -130,7 +155,7 @@ export class PolicyEnforcer {
   }
 
   async applyDefaults(query: CubeQuery): Promise<PolicyContext> {
-    const catalog = await getCatalogIndex();
+    const catalog = await this.getCatalog();
     const notes: string[] = [];
 
     const normalizedQuery: CubeQuery = { ...query };
@@ -205,11 +230,12 @@ export class PolicyEnforcer {
   }
 }
 
-let defaultEnforcer: PolicyEnforcer | null = null;
-
-export function getPolicyEnforcer(): PolicyEnforcer {
-  if (!defaultEnforcer) {
-    defaultEnforcer = new PolicyEnforcer();
-  }
-  return defaultEnforcer;
+/**
+ * Create a new PolicyEnforcer instance with specific configuration
+ */
+export function createPolicyEnforcer(
+  config: PolicyEnforcerConfig,
+  catalogIndex: CatalogIndex
+): PolicyEnforcer {
+  return new PolicyEnforcer(config, catalogIndex);
 }

@@ -1,13 +1,36 @@
 import { createHash } from 'crypto';
-import { getCubeClient } from '../cube/client.js';
-import { getCatalogIndex } from '../catalog/index.js';
-import { getPolicyEnforcer } from '../policy/enforcer.js';
+import type { CubeClient } from '../cube/client.js';
+import type { PolicyEnforcer } from '../policy/enforcer.js';
 import { getLogger, auditLog } from '../utils/logger.js';
 import type { CubeQuery, QueryResult } from '../types.js';
 import type { CubeLoadResponse } from '../cube/types.js';
 
+/**
+ * Configuration for creating a QuerySemantic instance
+ */
+export interface QuerySemanticConfig {
+  databaseId?: string;
+}
+
 export class QuerySemantic {
   private logger = getLogger().child({ component: 'QuerySemantic' });
+  private cubeClient: CubeClient;
+  private policyEnforcer: PolicyEnforcer;
+  private databaseId?: string;
+
+  constructor(
+    config: QuerySemanticConfig,
+    cubeClient: CubeClient,
+    policyEnforcer: PolicyEnforcer
+  ) {
+    this.cubeClient = cubeClient;
+    this.policyEnforcer = policyEnforcer;
+    this.databaseId = config.databaseId;
+
+    if (this.databaseId) {
+      this.logger = this.logger.child({ databaseId: this.databaseId });
+    }
+  }
 
   async execute(query: CubeQuery): Promise<QueryResult> {
     const startTime = Date.now();
@@ -16,22 +39,20 @@ export class QuerySemantic {
     this.logger.info({ queryHash }, 'Executing semantic query');
 
     try {
-      // Get policy enforcer and validate
-      const enforcer = getPolicyEnforcer();
-      await enforcer.validate(query);
+      // Validate query
+      await this.policyEnforcer.validate(query);
 
       // Apply defaults
-      const { normalizedQuery, notes } = await enforcer.applyDefaults(query);
+      const { normalizedQuery, notes } = await this.policyEnforcer.applyDefaults(query);
 
       // Execute query
-      const cubeClient = getCubeClient();
-      const response = await cubeClient.load(normalizedQuery);
+      const response = await this.cubeClient.load(normalizedQuery);
 
       // Get SQL if configured
       let sql: string | null = null;
-      if (enforcer.shouldReturnSql()) {
+      if (this.policyEnforcer.shouldReturnSql()) {
         try {
-          const sqlResponse = await cubeClient.getSql(normalizedQuery);
+          const sqlResponse = await this.cubeClient.getSql(normalizedQuery);
           sql = sqlResponse.sql.sql.join('\n');
         } catch (err) {
           this.logger.warn({ error: err }, 'Failed to get SQL');
@@ -51,6 +72,7 @@ export class QuerySemantic {
         query_hash: queryHash,
         members: this.extractMembers(normalizedQuery),
         row_count: result.data.length,
+        databaseId: this.databaseId,
       });
 
       this.logger.info(
@@ -72,6 +94,7 @@ export class QuerySemantic {
           code: (err as { code?: string }).code ?? 'UNKNOWN',
           message: (err as Error).message,
         },
+        databaseId: this.databaseId,
       });
 
       throw err;
@@ -170,11 +193,13 @@ export class QuerySemantic {
   }
 }
 
-let defaultQuerySemantic: QuerySemantic | null = null;
-
-export function getQuerySemantic(): QuerySemantic {
-  if (!defaultQuerySemantic) {
-    defaultQuerySemantic = new QuerySemantic();
-  }
-  return defaultQuerySemantic;
+/**
+ * Create a new QuerySemantic instance with specific configuration
+ */
+export function createQuerySemantic(
+  config: QuerySemanticConfig,
+  cubeClient: CubeClient,
+  policyEnforcer: PolicyEnforcer
+): QuerySemantic {
+  return new QuerySemantic(config, cubeClient, policyEnforcer);
 }

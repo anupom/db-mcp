@@ -1,10 +1,7 @@
 import { Router, Request, Response } from 'express';
-import { readCatalog } from '../services/catalog-service.js';
+import { readCatalog, getCubeApiConfig } from '../services/catalog-service.js';
 
 const router = Router();
-
-const CUBE_API_URL = process.env.CUBE_API_URL || 'http://localhost:4000/cubejs-api/v1';
-const CUBE_JWT_SECRET = process.env.CUBE_JWT_SECRET || 'your-super-secret-key-min-32-chars';
 
 interface CubeQuery {
   measures?: string[];
@@ -25,21 +22,23 @@ interface CubeQuery {
   offset?: number;
 }
 
-async function generateToken(): Promise<string> {
+async function generateToken(jwtSecret: string, databaseId?: string): Promise<string> {
+  const payload = databaseId ? { databaseId } : {};
   try {
     const jwt = await import('jsonwebtoken');
-    return jwt.default.sign({}, CUBE_JWT_SECRET, { expiresIn: '1h' });
+    return jwt.default.sign(payload, jwtSecret, { expiresIn: '1h' });
   } catch {
     // Fallback for when jsonwebtoken isn't available
-    return Buffer.from(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 3600 })).toString('base64');
+    return Buffer.from(JSON.stringify({ ...payload, exp: Math.floor(Date.now() / 1000) + 3600 })).toString('base64');
   }
 }
 
 // POST /api/query/validate - Validate query against rules
 router.post('/validate', async (req: Request, res: Response) => {
   try {
+    const databaseId = (req.query.database as string) || 'default';
     const query = req.body as CubeQuery;
-    const catalog = await readCatalog();
+    const catalog = await readCatalog(databaseId);
     const errors: string[] = [];
     const warnings: string[] = [];
 
@@ -125,6 +124,7 @@ router.post('/validate', async (req: Request, res: Response) => {
 // POST /api/query/execute - Execute query, return results
 router.post('/execute', async (req: Request, res: Response) => {
   try {
+    const databaseId = (req.query.database as string) || 'default';
     const query = req.body as CubeQuery;
 
     // Ensure limit is set
@@ -132,10 +132,11 @@ router.post('/execute', async (req: Request, res: Response) => {
       query.limit = 100;
     }
 
-    const token = await generateToken();
+    const cubeConfig = await getCubeApiConfig(databaseId);
+    const token = await generateToken(cubeConfig.jwtSecret, databaseId);
     const params = new URLSearchParams({ query: JSON.stringify(query) });
 
-    const response = await fetch(`${CUBE_API_URL}/load?${params.toString()}`, {
+    const response = await fetch(`${cubeConfig.cubeApiUrl}/load?${params.toString()}`, {
       headers: {
         Authorization: `Bearer ${token}`,
       },
@@ -158,6 +159,7 @@ router.post('/execute', async (req: Request, res: Response) => {
 // POST /api/query/sql - Get generated SQL
 router.post('/sql', async (req: Request, res: Response) => {
   try {
+    const databaseId = (req.query.database as string) || 'default';
     const query = req.body as CubeQuery;
 
     // Ensure limit is set
@@ -165,10 +167,11 @@ router.post('/sql', async (req: Request, res: Response) => {
       query.limit = 100;
     }
 
-    const token = await generateToken();
+    const cubeConfig = await getCubeApiConfig(databaseId);
+    const token = await generateToken(cubeConfig.jwtSecret, databaseId);
     const params = new URLSearchParams({ query: JSON.stringify(query) });
 
-    const response = await fetch(`${CUBE_API_URL}/sql?${params.toString()}`, {
+    const response = await fetch(`${cubeConfig.cubeApiUrl}/sql?${params.toString()}`, {
       headers: {
         Authorization: `Bearer ${token}`,
       },
@@ -184,6 +187,62 @@ router.post('/sql', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error getting SQL:', error);
     const message = error instanceof Error ? error.message : 'Failed to get SQL';
+    res.status(500).json({ error: message });
+  }
+});
+
+// GET /api/query/debug - Debug endpoint to verify database routing
+router.get('/debug', async (req: Request, res: Response) => {
+  try {
+    const databaseId = (req.query.database as string) || 'default';
+    const cubeConfig = await getCubeApiConfig(databaseId);
+    const token = await generateToken(cubeConfig.jwtSecret, databaseId);
+
+    // Decode JWT to show payload (without verification, just for debug)
+    let jwtPayload: Record<string, unknown> = {};
+    try {
+      const parts = token.split('.');
+      if (parts.length === 3) {
+        jwtPayload = JSON.parse(Buffer.from(parts[1], 'base64').toString());
+      }
+    } catch {
+      jwtPayload = { error: 'Could not decode JWT' };
+    }
+
+    // Test Cube.js connection with a simple meta request
+    let cubeStatus: { ok: boolean; error?: string; meta?: unknown } = { ok: false };
+    try {
+      const response = await fetch(`${cubeConfig.cubeApiUrl}/meta`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      if (response.ok) {
+        const meta = await response.json() as { cubes?: Array<{ name: string }> };
+        cubeStatus = {
+          ok: true,
+          meta: {
+            cubesCount: meta.cubes?.length || 0,
+            cubeNames: meta.cubes?.map((c) => c.name) || [],
+          },
+        };
+      } else {
+        cubeStatus = { ok: false, error: `${response.status}: ${await response.text()}` };
+      }
+    } catch (err) {
+      cubeStatus = { ok: false, error: err instanceof Error ? err.message : 'Unknown error' };
+    }
+
+    res.json({
+      databaseId,
+      jwtPayload,
+      cubeApiUrl: cubeConfig.cubeApiUrl,
+      cubeStatus,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('Error in debug endpoint:', error);
+    const message = error instanceof Error ? error.message : 'Failed to debug';
     res.status(500).json({ error: message });
   }
 });

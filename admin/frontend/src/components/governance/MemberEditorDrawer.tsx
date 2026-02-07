@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { X, Save, Trash2, Loader2, Plus, Minus } from 'lucide-react';
+import { X, Save, Trash2, Loader2 } from 'lucide-react';
 import type { MemberWithGovernance, CatalogOverride } from '../../api/client';
 
 interface MemberEditorDrawerProps {

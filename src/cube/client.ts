@@ -10,16 +10,39 @@ import type {
   CubeErrorResponse,
 } from './types.js';
 
+/**
+ * Configuration for creating a CubeClient instance
+ */
+export interface CubeClientConfig {
+  baseUrl?: string;
+  jwtSecret?: string;
+  jwtExpiresIn?: string;
+  databaseId?: string; // For multi-tenant JWT payload
+}
+
 export class CubeClient {
   private baseUrl: string;
+  private jwtSecret: string;
+  private jwtExpiresIn: string;
+  private databaseId?: string;
   private logger = getLogger().child({ component: 'CubeClient' });
 
-  constructor(baseUrl?: string) {
-    this.baseUrl = baseUrl ?? getConfig().CUBE_API_URL;
+  constructor(config?: CubeClientConfig) {
+    const globalConfig = getConfig();
+    this.baseUrl = config?.baseUrl ?? globalConfig.CUBE_API_URL;
+    this.jwtSecret = config?.jwtSecret ?? globalConfig.CUBE_JWT_SECRET;
+    this.jwtExpiresIn = config?.jwtExpiresIn ?? globalConfig.CUBE_JWT_EXPIRES_IN;
+    this.databaseId = config?.databaseId;
+
+    if (this.databaseId) {
+      this.logger = this.logger.child({ databaseId: this.databaseId });
+    }
   }
 
   private getAuthHeaders(): Record<string, string> {
-    const token = generateCubeJwt();
+    // Include databaseId in JWT payload for Cube routing
+    const payload = this.databaseId ? { databaseId: this.databaseId } : {};
+    const token = generateCubeJwt(payload, this.jwtSecret, this.jwtExpiresIn);
     return {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
@@ -79,11 +102,9 @@ export class CubeClient {
   }
 }
 
-let defaultClient: CubeClient | null = null;
-
-export function getCubeClient(): CubeClient {
-  if (!defaultClient) {
-    defaultClient = new CubeClient();
-  }
-  return defaultClient;
+/**
+ * Create a new CubeClient instance with specific configuration
+ */
+export function createCubeClient(config?: CubeClientConfig): CubeClient {
+  return new CubeClient(config);
 }

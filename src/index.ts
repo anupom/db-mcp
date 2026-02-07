@@ -1,6 +1,8 @@
+import 'dotenv/config';
 import { loadConfig, getConfig } from './config.js';
 import { McpServer } from './mcp/server.js';
 import { getLogger } from './utils/logger.js';
+import { getDatabaseManager } from './registry/manager.js';
 
 async function main(): Promise<void> {
   try {
@@ -17,6 +19,18 @@ async function main(): Promise<void> {
       },
       'Starting DB-MCP server'
     );
+
+    // Auto-initialize default database if none exist
+    const manager = getDatabaseManager();
+    const databases = manager.listDatabases();
+    if (databases.length === 0) {
+      logger.info('No databases configured, initializing default from environment');
+      await manager.initializeDefaultDatabase();
+    } else {
+      logger.info({ count: databases.length }, 'Found existing databases');
+      // Export connections for Cube.js on startup (for existing databases)
+      await manager.exportConnectionsForCube();
+    }
 
     const server = new McpServer();
     await server.start();

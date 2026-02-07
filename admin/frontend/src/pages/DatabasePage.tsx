@@ -1,73 +1,107 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Database, Table, ChevronRight, Eye, Loader2, Wand2, FileCode, Edit2, Save, X } from 'lucide-react';
+import { Database, Table, ChevronRight, Eye, Loader2, Wand2, FileCode, Edit2, Save, X, AlertCircle } from 'lucide-react';
 import Editor from '@monaco-editor/react';
-import { databaseApi, cubesApi, type TableDetails, type CubeConfig } from '../api/client';
+import { databaseApi, cubesApi, type CubeConfig } from '../api/client';
+import { useDatabaseContext } from '../context/DatabaseContext';
+import DatabaseSelector from '../components/shared/DatabaseSelector';
 import TableList from '../components/database/TableList';
 import CubeGeneratorModal from '../components/database/CubeGeneratorModal';
 import YamlPreview from '../components/database/YamlPreview';
 
 export default function DatabasePage() {
+  const { databaseId } = useDatabaseContext();
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
   const [showGenerator, setShowGenerator] = useState(false);
   const [generatedYaml, setGeneratedYaml] = useState<string | null>(null);
+  const [generatedConfig, setGeneratedConfig] = useState<CubeConfig | null>(null);
   const [selectedCubeFile, setSelectedCubeFile] = useState<string | null>(null);
   const [editingYaml, setEditingYaml] = useState<string | null>(null);
+  const [isGeneratingAll, setIsGeneratingAll] = useState(false);
+  const [generationProgress, setGenerationProgress] = useState({ current: 0, total: 0 });
 
   const queryClient = useQueryClient();
 
+  // Reset selections when database changes
+  useEffect(() => {
+    setSelectedTable(null);
+    setSelectedCubeFile(null);
+    setEditingYaml(null);
+    setGeneratedYaml(null);
+    setGeneratedConfig(null);
+  }, [databaseId]);
+
   const { data: tables, isLoading: tablesLoading } = useQuery({
-    queryKey: ['tables'],
-    queryFn: () => databaseApi.getTables(),
+    queryKey: ['tables', databaseId],
+    queryFn: () => databaseApi.getTables(databaseId!),
+    enabled: !!databaseId,
   });
 
   const { data: cubeFiles, isLoading: cubeFilesLoading } = useQuery({
-    queryKey: ['cubeFiles'],
-    queryFn: () => cubesApi.listFiles(),
+    queryKey: ['cubeFiles', databaseId],
+    queryFn: () => cubesApi.listFiles(databaseId!),
+    enabled: !!databaseId,
   });
 
   const { data: tableDetails, isLoading: detailsLoading } = useQuery({
-    queryKey: ['tableDetails', selectedTable],
-    queryFn: () => (selectedTable ? databaseApi.getTableDetails(selectedTable) : null),
-    enabled: !!selectedTable,
+    queryKey: ['tableDetails', databaseId, selectedTable],
+    queryFn: () => databaseApi.getTableDetails(databaseId!, selectedTable!),
+    enabled: !!databaseId && !!selectedTable,
   });
 
   const { data: sampleData, isLoading: sampleLoading } = useQuery({
-    queryKey: ['sampleData', selectedTable],
-    queryFn: () => (selectedTable ? databaseApi.getSampleData(selectedTable) : null),
-    enabled: !!selectedTable,
+    queryKey: ['sampleData', databaseId, selectedTable],
+    queryFn: () => databaseApi.getSampleData(databaseId!, selectedTable!),
+    enabled: !!databaseId && !!selectedTable,
   });
 
   const { data: cubeFileContent, isLoading: cubeFileLoading } = useQuery({
-    queryKey: ['cubeFile', selectedCubeFile],
-    queryFn: () => (selectedCubeFile ? cubesApi.readFile(selectedCubeFile) : null),
-    enabled: !!selectedCubeFile,
+    queryKey: ['cubeFile', databaseId, selectedCubeFile],
+    queryFn: () => cubesApi.readFile(databaseId!, selectedCubeFile!),
+    enabled: !!databaseId && !!selectedCubeFile,
   });
 
   const generateMutation = useMutation({
-    mutationFn: (config: CubeConfig) => cubesApi.generateYaml(config),
+    mutationFn: async (config: CubeConfig) => {
+      // Try LLM-enhanced generation first, fallback to rule-based
+      try {
+        const enhanced = await cubesApi.generateEnhanced(
+          databaseId!,
+          config.sql_table,
+          config,
+          sampleData?.data
+        );
+        return enhanced;
+      } catch (llmError) {
+        console.warn('LLM enhancement failed, using rule-based:', llmError);
+        const result = await cubesApi.generateYaml(databaseId!, config);
+        return { yaml: result.yaml, config };
+      }
+    },
     onSuccess: (data) => {
       setGeneratedYaml(data.yaml);
+      setGeneratedConfig(data.config);
       setShowGenerator(false);
     },
   });
 
   const saveCubeMutation = useMutation({
     mutationFn: ({ fileName, config }: { fileName: string; config: CubeConfig }) =>
-      cubesApi.createFile(fileName, config),
+      cubesApi.createFile(databaseId!, fileName, config),
     onSuccess: () => {
       setGeneratedYaml(null);
-      queryClient.invalidateQueries({ queryKey: ['cubeFiles'] });
+      setGeneratedConfig(null);
+      queryClient.invalidateQueries({ queryKey: ['cubeFiles', databaseId] });
       alert('Cube file saved successfully!');
     },
   });
 
   const updateCubeMutation = useMutation({
     mutationFn: ({ name, content }: { name: string; content: string }) =>
-      cubesApi.updateFile(name, content),
+      cubesApi.updateFile(databaseId!, name, content),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['cubeFile', selectedCubeFile] });
-      queryClient.invalidateQueries({ queryKey: ['cubeFiles'] });
+      queryClient.invalidateQueries({ queryKey: ['cubeFile', databaseId, selectedCubeFile] });
+      queryClient.invalidateQueries({ queryKey: ['cubeFiles', databaseId] });
       setEditingYaml(null);
       alert('Cube file updated successfully!');
     },
@@ -97,13 +131,120 @@ export default function DatabasePage() {
     }
   };
 
+  const handleGenerateAllCubes = async () => {
+    if (!tables?.tables || tables.tables.length === 0) return;
+
+    setIsGeneratingAll(true);
+    const allTables = tables.tables;
+    setGenerationProgress({ current: 0, total: allTables.length });
+
+    for (let i = 0; i < allTables.length; i++) {
+      const table = allTables[i];
+      try {
+        // Step 1: Get table details (rule-based suggestions)
+        const details = await databaseApi.getTableDetails(databaseId!, table.table_name);
+
+        // Step 2: Get sample data for LLM context
+        const sample = await databaseApi.getSampleData(databaseId!, table.table_name);
+
+        // Step 3: Build initial config from rules
+        const initialConfig: CubeConfig = {
+          name: table.table_name,
+          sql_table: table.table_name,
+          measures: details.suggestedMeasures.map(m => ({
+            name: m.name,
+            type: m.type,
+            sql: m.sql,
+            title: m.title,
+          })),
+          dimensions: details.suggestedDimensions.map(d => ({
+            name: d.name,
+            sql: d.sql,
+            type: d.type,
+            title: d.title,
+            primary_key: d.primaryKey,
+          })),
+        };
+
+        // Step 4: Enhance with LLM (with fallback to rule-based)
+        try {
+          const enhanced = await cubesApi.generateEnhanced(
+            databaseId!,
+            table.table_name,
+            initialConfig,
+            sample?.data
+          );
+          // Step 5: Save enhanced cube
+          await cubesApi.createFile(databaseId!, table.table_name, enhanced.config);
+        } catch (llmError) {
+          console.warn(`LLM enhancement failed for ${table.table_name}, using rule-based:`, llmError);
+          // Fallback: save rule-based config
+          await cubesApi.createFile(databaseId!, table.table_name, initialConfig);
+        }
+
+        setGenerationProgress({ current: i + 1, total: allTables.length });
+      } catch (error) {
+        console.error(`Failed to generate cube for ${table.table_name}:`, error);
+      }
+    }
+
+    setIsGeneratingAll(false);
+    queryClient.invalidateQueries({ queryKey: ['cubeFiles', databaseId] });
+  };
+
+  // Show prompt if no database selected
+  if (!databaseId) {
+    return (
+      <div className="p-6">
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-3">
+            <Database className="w-8 h-8 text-blue-600" />
+            <div>
+              <h1 className="text-2xl font-bold">Database & Cubes</h1>
+              <p className="text-gray-600">Explore tables and manage Cube definitions</p>
+            </div>
+          </div>
+          <DatabaseSelector />
+        </div>
+
+        <div className="card text-center py-16">
+          <AlertCircle className="w-16 h-16 mx-auto text-yellow-500 mb-4" />
+          <h2 className="text-xl font-semibold text-gray-700 mb-2">No Database Selected</h2>
+          <p className="text-gray-500 mb-4">Select a database from the dropdown above to view tables and cubes.</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="p-6">
-      <div className="flex items-center gap-3 mb-6">
-        <Database className="w-8 h-8 text-blue-600" />
-        <div>
-          <h1 className="text-2xl font-bold">Database & Cubes</h1>
-          <p className="text-gray-600">Explore tables and manage Cube definitions</p>
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-3">
+          <Database className="w-8 h-8 text-blue-600" />
+          <div>
+            <h1 className="text-2xl font-bold">Database & Cubes</h1>
+            <p className="text-gray-600">Explore tables and manage Cube definitions</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          <button
+            className="btn btn-primary flex items-center gap-2"
+            onClick={handleGenerateAllCubes}
+            disabled={isGeneratingAll || !tables?.tables?.length}
+          >
+            {isGeneratingAll ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Generating ({generationProgress.current}/{generationProgress.total})
+              </>
+            ) : (
+              <>
+                <Wand2 className="w-4 h-4" />
+                Generate All Cubes
+              </>
+            )}
+          </button>
+          <DatabaseSelector />
         </div>
       </div>
 
@@ -375,25 +516,31 @@ export default function DatabasePage() {
         <YamlPreview
           yaml={generatedYaml}
           tableName={selectedTable || ''}
-          onClose={() => setGeneratedYaml(null)}
+          onClose={() => {
+            setGeneratedYaml(null);
+            setGeneratedConfig(null);
+          }}
           onSave={(fileName) => {
-            const config: CubeConfig = {
-              name: fileName,
-              sql_table: selectedTable || '',
-              measures: tableDetails.suggestedMeasures.map((m) => ({
-                name: m.name,
-                type: m.type,
-                sql: m.sql,
-                title: m.title,
-              })),
-              dimensions: tableDetails.suggestedDimensions.map((d) => ({
-                name: d.name,
-                sql: d.sql,
-                type: d.type,
-                title: d.title,
-                primary_key: d.primaryKey,
-              })),
-            };
+            // Use the LLM-enhanced config if available, otherwise fall back to rule-based
+            const config: CubeConfig = generatedConfig
+              ? { ...generatedConfig, name: fileName }
+              : {
+                  name: fileName,
+                  sql_table: selectedTable || '',
+                  measures: tableDetails.suggestedMeasures.map((m) => ({
+                    name: m.name,
+                    type: m.type,
+                    sql: m.sql,
+                    title: m.title,
+                  })),
+                  dimensions: tableDetails.suggestedDimensions.map((d) => ({
+                    name: d.name,
+                    sql: d.sql,
+                    type: d.type,
+                    title: d.title,
+                    primary_key: d.primaryKey,
+                  })),
+                };
             saveCubeMutation.mutate({ fileName, config });
           }}
           isSaving={saveCubeMutation.isPending}

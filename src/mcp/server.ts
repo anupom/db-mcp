@@ -1,434 +1,81 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
-  ErrorCode,
-  McpError,
-} from '@modelcontextprotocol/sdk/types.js';
-import { z } from 'zod';
 import express from 'express';
-import { getCatalogIndex } from '../catalog/index.js';
-import { getQuerySemantic } from '../query/semantic.js';
-import { DbMcpError } from '../errors.js';
-import { getLogger, auditLog } from '../utils/logger.js';
-import type { CubeQuery } from '../types.js';
+import cors from 'cors';
+import { getLogger } from '../utils/logger.js';
 import { getConfig } from '../config.js';
-
-// Tool input schemas
-const catalogSearchSchema = z.object({
-  query: z.string().min(1).describe('Search query for finding members'),
-  types: z
-    .array(z.enum(['measure', 'dimension', 'segment', 'timeDimension']))
-    .optional()
-    .describe('Filter by member types'),
-  cubes: z.array(z.string()).optional().describe('Filter by cube names'),
-  limit: z.number().int().positive().max(50).optional().default(10).describe('Maximum results'),
-});
-
-const catalogDescribeSchema = z.object({
-  member: z.string().min(1).describe('Full member name (e.g., "Orders.count")'),
-});
-
-const querySemanticSchema = z.object({
-  measures: z.array(z.string()).optional().describe('Measures to query'),
-  dimensions: z.array(z.string()).optional().describe('Dimensions for grouping'),
-  timeDimensions: z
-    .array(
-      z.object({
-        dimension: z.string(),
-        granularity: z.string().optional(),
-        dateRange: z.union([z.string(), z.tuple([z.string(), z.string()])]).optional(),
-      })
-    )
-    .optional()
-    .describe('Time dimensions with optional granularity and date range'),
-  filters: z
-    .array(
-      z.object({
-        member: z.string().optional(),
-        dimension: z.string().optional(),
-        operator: z.string(),
-        values: z.array(z.string()).optional(),
-      })
-    )
-    .optional()
-    .describe('Filter conditions'),
-  segments: z.array(z.string()).optional().describe('Segments to apply'),
-  order: z
-    .union([
-      z.record(z.enum(['asc', 'desc'])),
-      z.array(z.tuple([z.string(), z.enum(['asc', 'desc'])])),
-    ])
-    .optional()
-    .describe('Sort order'),
-  limit: z.number().int().positive().describe('Maximum rows to return (required)'),
-  offset: z.number().int().nonnegative().optional().describe('Number of rows to skip'),
-});
+import { getDatabaseManager } from '../registry/manager.js';
+import { DatabaseMcpHandler } from './handler.js';
+import adminRoutes, { healthCheck } from '../admin/index.js';
 
 export class McpServer {
   private servers: Server[] = [];
   private logger = getLogger().child({ component: 'McpServer' });
 
-  private createServer(): Server {
-    const server = new Server(
-      {
-        name: 'db-mcp',
-        version: '0.1.0',
-      },
-      {
-        capabilities: {
-          tools: {},
-        },
+  // Handler cache for multi-database support
+  private handlers: Map<string, DatabaseMcpHandler> = new Map();
+
+  // Unsubscribe from registry events
+  private unsubscribeFromRegistry?: () => void;
+
+  /**
+   * Get or create a handler for a specific database
+   */
+  async getHandler(databaseId: string): Promise<DatabaseMcpHandler> {
+    // Check cache first
+    let handler = this.handlers.get(databaseId);
+    if (handler) {
+      // Ensure it's initialized
+      if (!handler.isReady()) {
+        await handler.initialize();
       }
-    );
-
-    this.setupHandlers(server);
-    this.servers.push(server);
-    return server;
-  }
-
-  private setupHandlers(server: Server): void {
-    // List tools
-    server.setRequestHandler(ListToolsRequestSchema, async () => {
-      return {
-        tools: [
-          {
-            name: 'catalog.search',
-            description:
-              'Search the data catalog for available measures, dimensions, and segments. Use this to discover what data is available for querying.',
-            inputSchema: {
-              type: 'object',
-              properties: {
-                query: {
-                  type: 'string',
-                  description: 'Search query for finding members',
-                },
-                types: {
-                  type: 'array',
-                  items: {
-                    type: 'string',
-                    enum: ['measure', 'dimension', 'segment', 'timeDimension'],
-                  },
-                  description: 'Filter by member types',
-                },
-                cubes: {
-                  type: 'array',
-                  items: { type: 'string' },
-                  description: 'Filter by cube names',
-                },
-                limit: {
-                  type: 'number',
-                  description: 'Maximum results (default: 10, max: 50)',
-                },
-              },
-              required: ['query'],
-            },
-          },
-          {
-            name: 'catalog.describe',
-            description:
-              'Get detailed information about a specific member including its definition, type, and related members.',
-            inputSchema: {
-              type: 'object',
-              properties: {
-                member: {
-                  type: 'string',
-                  description: 'Full member name (e.g., "Orders.count")',
-                },
-              },
-              required: ['member'],
-            },
-          },
-          {
-            name: 'query.semantic',
-            description:
-              'Execute a governed semantic query against the data warehouse. Queries are validated against governance policies before execution.',
-            inputSchema: {
-              type: 'object',
-              properties: {
-                measures: {
-                  type: 'array',
-                  items: { type: 'string' },
-                  description: 'Measures to query',
-                },
-                dimensions: {
-                  type: 'array',
-                  items: { type: 'string' },
-                  description: 'Dimensions for grouping',
-                },
-                timeDimensions: {
-                  type: 'array',
-                  items: {
-                    type: 'object',
-                    properties: {
-                      dimension: { type: 'string' },
-                      granularity: { type: 'string' },
-                      dateRange: {
-                        oneOf: [
-                          { type: 'string' },
-                          { type: 'array', items: { type: 'string' }, minItems: 2, maxItems: 2 },
-                        ],
-                      },
-                    },
-                    required: ['dimension'],
-                  },
-                  description: 'Time dimensions with optional granularity and date range',
-                },
-                filters: {
-                  type: 'array',
-                  items: {
-                    type: 'object',
-                    properties: {
-                      member: { type: 'string' },
-                      dimension: { type: 'string' },
-                      operator: { type: 'string' },
-                      values: { type: 'array', items: { type: 'string' } },
-                    },
-                    required: ['operator'],
-                  },
-                  description: 'Filter conditions',
-                },
-                segments: {
-                  type: 'array',
-                  items: { type: 'string' },
-                  description: 'Segments to apply',
-                },
-                order: {
-                  oneOf: [
-                    { type: 'object', additionalProperties: { enum: ['asc', 'desc'] } },
-                    { type: 'array', items: { type: 'array', items: { type: 'string' } } },
-                  ],
-                  description: 'Sort order',
-                },
-                limit: {
-                  type: 'number',
-                  description: 'Maximum rows to return (required)',
-                },
-                offset: {
-                  type: 'number',
-                  description: 'Number of rows to skip',
-                },
-              },
-              required: ['limit'],
-            },
-          },
-        ],
-      };
-    });
-
-    // Handle tool calls
-    server.setRequestHandler(CallToolRequestSchema, async (request) => {
-      const { name, arguments: args } = request.params;
-
-      this.logger.debug({ tool: name, args }, 'Tool call received');
-
-      try {
-        switch (name) {
-          case 'catalog.search':
-            return await this.handleCatalogSearch(args);
-          case 'catalog.describe':
-            return await this.handleCatalogDescribe(args);
-          case 'query.semantic':
-            return await this.handleQuerySemantic(args);
-          default:
-            throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${name}`);
-        }
-      } catch (err) {
-        return this.handleError(name, err);
-      }
-    });
-  }
-
-  private async handleCatalogSearch(args: unknown) {
-    const input = catalogSearchSchema.parse(args);
-
-    auditLog({
-      event: 'catalog.search',
-      tool: 'catalog.search',
-      input: { query: input.query, types: input.types, cubes: input.cubes },
-    });
-
-    const catalog = await getCatalogIndex();
-    const results = catalog.search({
-      query: input.query,
-      types: input.types,
-      cubes: input.cubes,
-      limit: input.limit,
-    });
-
-    return {
-      content: [
-        {
-          type: 'text' as const,
-          text: JSON.stringify(
-            {
-              results: results.map((r) => ({
-                name: r.member.name,
-                type: r.member.type,
-                title: r.member.title,
-                description: r.member.description,
-                cube: r.member.cubeName,
-                score: r.score,
-              })),
-              count: results.length,
-            },
-            null,
-            2
-          ),
-        },
-      ],
-    };
-  }
-
-  private async handleCatalogDescribe(args: unknown) {
-    const input = catalogDescribeSchema.parse(args);
-
-    auditLog({
-      event: 'catalog.describe',
-      tool: 'catalog.describe',
-      input: { member: input.member },
-    });
-
-    const catalog = await getCatalogIndex();
-    const result = catalog.describe(input.member);
-
-    return {
-      content: [
-        {
-          type: 'text' as const,
-          text: JSON.stringify(
-            {
-              member: {
-                name: result.member.name,
-                type: result.member.type,
-                title: result.member.title,
-                description: result.member.description,
-                cube: result.member.cubeName,
-                memberType: result.member.memberType,
-                exposed: result.member.exposed,
-                pii: result.member.pii,
-                format: result.member.format,
-                aggType: result.member.aggType,
-                drillMembers: result.member.drillMembers,
-                granularities: result.member.granularities,
-                allowedGroupBy: result.member.allowedGroupBy,
-                deniedGroupBy: result.member.deniedGroupBy,
-              },
-              relatedMembers: result.relatedMembers,
-            },
-            null,
-            2
-          ),
-        },
-      ],
-    };
-  }
-
-  private async handleQuerySemantic(args: unknown) {
-    const input = querySemanticSchema.parse(args);
-    const query: CubeQuery = input;
-
-    const querySemantic = getQuerySemantic();
-    const result = await querySemantic.execute(query);
-
-    return {
-      content: [
-        {
-          type: 'text' as const,
-          text: JSON.stringify(result, null, 2),
-        },
-      ],
-    };
-  }
-
-  private handleError(tool: string, err: unknown) {
-    this.logger.error({ tool, error: err }, 'Tool error');
-
-    if (err instanceof DbMcpError) {
-      auditLog({
-        event: 'error',
-        tool,
-        error: { code: err.code, message: err.message },
-      });
-
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: JSON.stringify(err.toJSON(), null, 2),
-          },
-        ],
-        isError: true,
-      };
+      return handler;
     }
 
-    if (err instanceof z.ZodError) {
-      const message = err.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join(', ');
+    // Get database config
+    const manager = getDatabaseManager();
+    const config = manager.getDatabase(databaseId);
 
-      auditLog({
-        event: 'error',
-        tool,
-        error: { code: 'VALIDATION_ERROR', message },
-      });
-
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: JSON.stringify(
-              {
-                error: {
-                  code: 'VALIDATION_ERROR',
-                  message: 'Invalid input',
-                  details: err.errors,
-                },
-              },
-              null,
-              2
-            ),
-          },
-        ],
-        isError: true,
-      };
+    if (!config) {
+      throw new Error(`Database '${databaseId}' not found`);
     }
 
-    if (err instanceof McpError) {
-      throw err;
+    if (config.status !== 'active') {
+      throw new Error(`Database '${databaseId}' is not active`);
     }
 
-    const message = err instanceof Error ? err.message : String(err);
+    // Create and cache handler
+    handler = new DatabaseMcpHandler(config);
+    await handler.initialize();
+    this.handlers.set(databaseId, handler);
 
-    auditLog({
-      event: 'error',
-      tool,
-      error: { code: 'INTERNAL_ERROR', message },
-    });
+    this.logger.info({ databaseId }, 'Created handler for database');
+    return handler;
+  }
 
-    return {
-      content: [
-        {
-          type: 'text' as const,
-          text: JSON.stringify(
-            {
-              error: {
-                code: 'INTERNAL_ERROR',
-                message,
-              },
-            },
-            null,
-            2
-          ),
-        },
-      ],
-      isError: true,
-    };
+  /**
+   * Remove a handler from cache (call when database is deactivated)
+   */
+  removeHandler(databaseId: string): void {
+    this.handlers.delete(databaseId);
+    this.logger.info({ databaseId }, 'Removed handler for database');
+  }
+
+  /**
+   * Clear all handlers from cache
+   */
+  clearHandlers(): void {
+    this.handlers.clear();
+    this.logger.info('Cleared all handlers');
   }
 
   async start(): Promise<void> {
     const config = getConfig();
     const startPromises: Promise<void>[] = [];
+
+    // Subscribe to database registry events for handler cleanup
+    this.subscribeToRegistryEvents();
 
     if (config.MCP_STDIO_ENABLED) {
       startPromises.push(this.startStdio());
@@ -445,129 +92,260 @@ export class McpServer {
     await Promise.all(startPromises);
   }
 
+  /**
+   * Subscribe to database registry events for handler lifecycle management
+   */
+  private subscribeToRegistryEvents(): void {
+    const manager = getDatabaseManager();
+    this.unsubscribeFromRegistry = manager.subscribe((event) => {
+      switch (event.type) {
+        case 'deactivated':
+        case 'deleted':
+          // Remove cached handler when database is deactivated or deleted
+          const dbId = event.type === 'deleted' ? event.databaseId : event.databaseId;
+          if (this.handlers.has(dbId)) {
+            this.removeHandler(dbId);
+            this.logger.info({ databaseId: dbId, event: event.type }, 'Handler removed due to registry event');
+          }
+          break;
+        case 'updated':
+          // Clear handler on update so it will be recreated with new config
+          if (this.handlers.has(event.database.id)) {
+            this.removeHandler(event.database.id);
+            this.logger.info({ databaseId: event.database.id }, 'Handler removed due to config update');
+          }
+          break;
+      }
+    });
+  }
+
   private async startStdio(): Promise<void> {
-    const server = this.createServer();
+    // Stdio uses DATABASE_ID env var if set, otherwise 'default'
+    const databaseId = process.env.DATABASE_ID || 'default';
+    const handler = await this.getHandler(databaseId);
+    const server = handler.createServer();
+    this.servers.push(server);
+
     const transport = new StdioServerTransport();
     await server.connect(transport);
-    this.logger.info('MCP server started on stdio');
+    this.logger.info({ databaseId }, 'MCP server started on stdio');
   }
 
   private async startHttpServer(): Promise<void> {
     const config = getConfig();
     const app = express();
+
+    // Middleware
+    app.use(cors());
     app.use(express.json());
 
-    // Store active transports by session ID
-    const transports = new Map<string, StreamableHTTPServerTransport>();
+    // Request logging
+    app.use((req, _res, next) => {
+      this.logger.debug({ method: req.method, path: req.path }, 'HTTP request');
+      next();
+    });
 
-    // Handle MCP requests
-    app.all('/mcp', async (req, res) => {
-      const sessionId = req.headers['mcp-session-id'] as string | undefined;
+    // Database-specific transports: Map<databaseId, Map<sessionId, transport>>
+    const dbTransports = new Map<string, Map<string, StreamableHTTPServerTransport>>();
 
-      // For POST requests, check if it's initialization or has existing session
-      if (req.method === 'POST') {
-        // Check if this is a new session (initialization request)
-        if (!sessionId) {
-          // Create new transport for this session
-          const transport = new StreamableHTTPServerTransport({
-            sessionIdGenerator: () => crypto.randomUUID(),
-            onsessioninitialized: (newSessionId) => {
-              transports.set(newSessionId, transport);
-              this.logger.debug({ sessionId: newSessionId }, 'New MCP session initialized');
-            },
-          });
-
-          // Create a new server instance for this session
-          const server = this.createServer();
-
-          // Clean up on close
-          transport.onclose = () => {
-            const id = transport.sessionId;
-            if (id) {
-              transports.delete(id);
-              this.logger.debug({ sessionId: id }, 'MCP session closed');
-            }
-          };
-
-          // Connect transport to server
-          await server.connect(transport);
-          await transport.handleRequest(req, res);
-          return;
-        }
-
-        // Existing session - find transport
-        const transport = transports.get(sessionId);
-        if (!transport) {
-          res.status(404).json({
-            jsonrpc: '2.0',
-            error: { code: -32000, message: 'Session not found' },
-            id: null,
-          });
-          return;
-        }
-        await transport.handleRequest(req, res);
-        return;
-      }
-
-      // Handle GET for SSE streaming
-      if (req.method === 'GET') {
-        if (!sessionId) {
-          res.status(400).json({
-            jsonrpc: '2.0',
-            error: { code: -32000, message: 'Session ID required for SSE' },
-            id: null,
-          });
-          return;
-        }
-        const transport = transports.get(sessionId);
-        if (!transport) {
-          res.status(404).json({
-            jsonrpc: '2.0',
-            error: { code: -32000, message: 'Session not found' },
-            id: null,
-          });
-          return;
-        }
-        await transport.handleRequest(req, res);
-        return;
-      }
-
-      // Handle DELETE for session cleanup
-      if (req.method === 'DELETE') {
-        if (!sessionId) {
-          res.status(400).json({
-            jsonrpc: '2.0',
-            error: { code: -32000, message: 'Session ID required' },
-            id: null,
-          });
-          return;
-        }
-        const transport = transports.get(sessionId);
-        if (transport) {
-          await transport.close();
-          transports.delete(sessionId);
-        }
-        res.status(204).end();
-        return;
-      }
-
-      res.status(405).json({
-        jsonrpc: '2.0',
-        error: { code: -32000, message: 'Method not allowed' },
-        id: null,
+    // Root endpoint - show available APIs
+    app.get('/', (_req, res) => {
+      res.json({
+        name: 'DB-MCP Server',
+        version: '1.0.0',
+        endpoints: {
+          health: '/health',
+          mcp: '/mcp/:databaseId',
+          databases: '/databases',
+          api: '/api',
+        },
       });
     });
 
-    // Health check endpoint
-    app.get('/health', (_req, res) => {
-      res.json({ status: 'ok', transport: 'http', sessions: transports.size });
+    // Health check endpoint (enhanced with database check)
+    app.get('/health', async (req, res) => {
+      const databaseId = (req.query.database as string) || 'default';
+      const dbHealthy = await healthCheck(databaseId);
+      const status = dbHealthy ? 'healthy' : 'unhealthy';
+      res.status(dbHealthy ? 200 : 503).json({
+        status,
+        timestamp: new Date().toISOString(),
+        databaseId,
+        transport: 'http',
+        databases: dbTransports.size,
+        services: {
+          database: dbHealthy ? 'connected' : 'disconnected',
+        },
+      });
+    });
+
+    // Mount admin API routes
+    app.use('/api', adminRoutes);
+
+    // Redirect /mcp to /mcp/default
+    app.all('/mcp', (req, res) => {
+      const newUrl = `/mcp/default${req.url.slice(4) || ''}`;
+      res.redirect(307, newUrl);
+    });
+
+    // Database-specific MCP endpoint
+    app.all('/mcp/:databaseId', async (req, res) => {
+      const { databaseId } = req.params;
+
+      try {
+        // Get or create handler for this database
+        const handler = await this.getHandler(databaseId);
+
+        // Get or create transport map for this database
+        let dbTransportMap = dbTransports.get(databaseId);
+        if (!dbTransportMap) {
+          dbTransportMap = new Map();
+          dbTransports.set(databaseId, dbTransportMap);
+        }
+
+        await this.handleMcpRequest(req, res, dbTransportMap, () => handler.createServer());
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Unknown error';
+        this.logger.error({ databaseId, error: err }, 'Database MCP request failed');
+        res.status(404).json({
+          jsonrpc: '2.0',
+          error: { code: -32000, message },
+          id: null,
+        });
+      }
+    });
+
+    // List active databases endpoint
+    app.get('/databases', (_req, res) => {
+      const manager = getDatabaseManager();
+      const databases = manager.listDatabases();
+      res.json({
+        databases: databases.filter(d => d.status === 'active'),
+      });
+    });
+
+    // Error handling
+    app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+      this.logger.error({ error: err }, 'Unhandled error');
+      res.status(500).json({ error: 'Internal server error' });
+    });
+
+    // 404 handler
+    app.use((_req, res) => {
+      res.status(404).json({ error: 'Not found' });
     });
 
     const port = config.MCP_HTTP_PORT;
     const host = config.MCP_HTTP_HOST;
 
     app.listen(port, host, () => {
-      this.logger.info({ port, host }, `MCP server started on http://${host}:${port}/mcp`);
+      this.logger.info({ port, host }, `MCP server started on http://${host}:${port}/mcp/:databaseId`);
+    });
+  }
+
+  /**
+   * Handle MCP request with session management
+   */
+  private async handleMcpRequest(
+    req: express.Request,
+    res: express.Response,
+    transports: Map<string, StreamableHTTPServerTransport>,
+    createServer: () => Server
+  ): Promise<void> {
+    const sessionId = req.headers['mcp-session-id'] as string | undefined;
+
+    // For POST requests, check if it's initialization or has existing session
+    if (req.method === 'POST') {
+      // Check if this is a new session (initialization request)
+      if (!sessionId) {
+        // Create new transport for this session
+        const transport = new StreamableHTTPServerTransport({
+          sessionIdGenerator: () => crypto.randomUUID(),
+          onsessioninitialized: (newSessionId) => {
+            transports.set(newSessionId, transport);
+            this.logger.debug({ sessionId: newSessionId }, 'New MCP session initialized');
+          },
+        });
+
+        // Create a new server instance for this session
+        const server = createServer();
+        this.servers.push(server);
+
+        // Clean up on close
+        transport.onclose = () => {
+          const id = transport.sessionId;
+          if (id) {
+            transports.delete(id);
+            this.logger.debug({ sessionId: id }, 'MCP session closed');
+          }
+        };
+
+        // Connect transport to server
+        await server.connect(transport);
+        await transport.handleRequest(req, res);
+        return;
+      }
+
+      // Existing session - find transport
+      const transport = transports.get(sessionId);
+      if (!transport) {
+        res.status(404).json({
+          jsonrpc: '2.0',
+          error: { code: -32000, message: 'Session not found' },
+          id: null,
+        });
+        return;
+      }
+      await transport.handleRequest(req, res);
+      return;
+    }
+
+    // Handle GET for SSE streaming
+    if (req.method === 'GET') {
+      if (!sessionId) {
+        res.status(400).json({
+          jsonrpc: '2.0',
+          error: { code: -32000, message: 'Session ID required for SSE' },
+          id: null,
+        });
+        return;
+      }
+      const transport = transports.get(sessionId);
+      if (!transport) {
+        res.status(404).json({
+          jsonrpc: '2.0',
+          error: { code: -32000, message: 'Session not found' },
+          id: null,
+        });
+        return;
+      }
+      await transport.handleRequest(req, res);
+      return;
+    }
+
+    // Handle DELETE for session cleanup
+    if (req.method === 'DELETE') {
+      if (!sessionId) {
+        res.status(400).json({
+          jsonrpc: '2.0',
+          error: { code: -32000, message: 'Session ID required' },
+          id: null,
+        });
+        return;
+      }
+      const transport = transports.get(sessionId);
+      if (transport) {
+        await transport.close();
+        transports.delete(sessionId);
+      }
+      res.status(204).end();
+      return;
+    }
+
+    res.status(405).json({
+      jsonrpc: '2.0',
+      error: { code: -32000, message: 'Method not allowed' },
+      id: null,
     });
   }
 }

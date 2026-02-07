@@ -8,16 +8,18 @@ import {
   getCubeApiMeta,
   type CubeConfig,
 } from '../services/cube-generator.js';
+import { enhanceCubeWithLLM } from '../services/llm-cube-enhancer.js';
+import { getCubeApiConfig } from '../services/catalog-service.js';
 
 const router = Router();
 
-const CUBE_API_URL = process.env.CUBE_API_URL || 'http://localhost:4000/cubejs-api/v1';
-const CUBE_JWT_SECRET = process.env.CUBE_JWT_SECRET || 'your-super-secret-key-min-32-chars';
-
 // GET /api/cubes - List cubes from Cube /meta
-router.get('/', async (_req: Request, res: Response) => {
+// Query param: ?database=<id> (default: "default")
+router.get('/', async (req: Request, res: Response) => {
   try {
-    const meta = await getCubeApiMeta(CUBE_API_URL, CUBE_JWT_SECRET);
+    const databaseId = (req.query.database as string) || 'default';
+    const cubeConfig = await getCubeApiConfig(databaseId);
+    const meta = await getCubeApiMeta(cubeConfig.cubeApiUrl, cubeConfig.jwtSecret, databaseId);
     res.json(meta);
   } catch (error) {
     console.error('Error fetching Cube meta:', error);
@@ -44,9 +46,11 @@ router.post('/generate', async (req: Request, res: Response) => {
 });
 
 // GET /api/cubes/files - List cube YAML files
-router.get('/files', async (_req: Request, res: Response) => {
+// Query param: ?database=<id> (default: "default")
+router.get('/files', async (req: Request, res: Response) => {
   try {
-    const files = await listCubeFiles();
+    const databaseId = (req.query.database as string) || 'default';
+    const files = await listCubeFiles(databaseId);
     res.json({ files });
   } catch (error) {
     console.error('Error listing cube files:', error);
@@ -55,10 +59,12 @@ router.get('/files', async (_req: Request, res: Response) => {
 });
 
 // GET /api/cubes/files/:name - Read cube YAML file
+// Query param: ?database=<id> (default: "default")
 router.get('/files/:name', async (req: Request, res: Response) => {
   try {
     const { name } = req.params;
-    const file = await readCubeFile(name);
+    const databaseId = (req.query.database as string) || 'default';
+    const file = await readCubeFile(name, databaseId);
     res.json(file);
   } catch (error) {
     console.error('Error reading cube file:', error);
@@ -68,9 +74,11 @@ router.get('/files/:name', async (req: Request, res: Response) => {
 });
 
 // PUT /api/cubes/files/:name - Update cube YAML
+// Query param: ?database=<id> (default: "default")
 router.put('/files/:name', async (req: Request, res: Response) => {
   try {
     const { name } = req.params;
+    const databaseId = (req.query.database as string) || 'default';
     const { content } = req.body as { content: string };
 
     if (!content) {
@@ -78,7 +86,7 @@ router.put('/files/:name', async (req: Request, res: Response) => {
       return;
     }
 
-    await writeCubeFile(name, content);
+    await writeCubeFile(name, content, databaseId);
     res.json({ success: true, message: `Updated ${name}.yml` });
   } catch (error) {
     console.error('Error updating cube file:', error);
@@ -87,9 +95,36 @@ router.put('/files/:name', async (req: Request, res: Response) => {
   }
 });
 
+// POST /api/cubes/generate-enhanced - Generate LLM-enhanced cube YAML
+// Query param: ?database=<id> (default: "default")
+router.post('/generate-enhanced', async (req: Request, res: Response) => {
+  try {
+    const { tableName, initialConfig, sampleData } = req.body as {
+      tableName: string;
+      initialConfig: CubeConfig;
+      sampleData?: Record<string, unknown>[];
+    };
+
+    if (!tableName || !initialConfig) {
+      res.status(400).json({ error: 'tableName and initialConfig required' });
+      return;
+    }
+
+    const enhanced = await enhanceCubeWithLLM(tableName, initialConfig, sampleData);
+    const yaml = generateCubeYaml(enhanced);
+
+    res.json({ config: enhanced, yaml });
+  } catch (error) {
+    console.error('LLM enhancement failed:', error);
+    res.status(500).json({ error: 'Enhancement failed' });
+  }
+});
+
 // POST /api/cubes/files - Create new cube YAML
+// Query param: ?database=<id> (default: "default")
 router.post('/files', async (req: Request, res: Response) => {
   try {
+    const databaseId = (req.query.database as string) || 'default';
     const { fileName, config } = req.body as { fileName: string; config: CubeConfig };
 
     if (!fileName || !config) {
@@ -97,7 +132,7 @@ router.post('/files', async (req: Request, res: Response) => {
       return;
     }
 
-    const content = await createCubeFile(fileName, config);
+    const content = await createCubeFile(fileName, config, databaseId);
     res.json({ success: true, content, message: `Created ${fileName}.yml` });
   } catch (error) {
     console.error('Error creating cube file:', error);

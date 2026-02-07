@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import { getConfig } from '../../config.js';
 
 const router = Router();
 
@@ -105,19 +106,22 @@ const TOOL_DEFINITIONS = [
 ];
 
 // Server info - dynamically built based on environment
-const getServerInfo = () => ({
-  name: 'db-mcp',
-  version: '1.0.0',
-  transports: {
-    stdio: process.env.MCP_STDIO_ENABLED !== 'false',
-    http: process.env.MCP_HTTP_ENABLED === 'true',
-  },
-  endpoint: process.env.MCP_HTTP_ENABLED === 'true'
-    ? (process.env.MCP_HTTP_URL || `http://localhost:${process.env.MCP_HTTP_PORT || 3002}/mcp`)
-    : undefined,
-  command: 'node dist/index.js',
-  description: 'MCP server for semantic data queries with governance controls',
-});
+const getServerInfo = () => {
+  const config = getConfig();
+  return {
+    name: 'db-mcp',
+    version: '1.0.0',
+    transports: {
+      stdio: config.MCP_STDIO_ENABLED,
+      http: config.MCP_HTTP_ENABLED,
+    },
+    endpoint: config.MCP_HTTP_ENABLED
+      ? `http://localhost:${config.MCP_HTTP_PORT}/mcp`
+      : undefined,
+    command: 'node dist/index.js',
+    description: 'MCP server for semantic data queries with governance controls',
+  };
+};
 
 // GET /api/mcp/info - Returns server info
 router.get('/info', (_req: Request, res: Response) => {
