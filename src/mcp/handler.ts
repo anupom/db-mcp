@@ -162,7 +162,7 @@ export class DatabaseMcpHandler {
       return {
         tools: [
           {
-            name: 'catalog.search',
+            name: 'catalog_search',
             description:
               'Search the data catalog for available measures, dimensions, and segments. Use this to discover what data is available for querying.',
             inputSchema: {
@@ -194,7 +194,7 @@ export class DatabaseMcpHandler {
             },
           },
           {
-            name: 'catalog.describe',
+            name: 'catalog_describe',
             description:
               'Get detailed information about a specific member including its definition, type, and related members.',
             inputSchema: {
@@ -209,7 +209,7 @@ export class DatabaseMcpHandler {
             },
           },
           {
-            name: 'query.semantic',
+            name: 'query_semantic',
             description:
               'Execute a governed semantic query against the data warehouse. Queries are validated against governance policies before execution.',
             inputSchema: {
@@ -296,11 +296,11 @@ export class DatabaseMcpHandler {
         await this.initialize();
 
         switch (name) {
-          case 'catalog.search':
+          case 'catalog_search':
             return await this.handleCatalogSearch(args);
-          case 'catalog.describe':
+          case 'catalog_describe':
             return await this.handleCatalogDescribe(args);
-          case 'query.semantic':
+          case 'query_semantic':
             return await this.handleQuerySemantic(args);
           default:
             throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${name}`);

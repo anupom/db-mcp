@@ -282,7 +282,7 @@ export class McpServer {
 
         // Connect transport to server
         await server.connect(transport);
-        await transport.handleRequest(req, res);
+        await transport.handleRequest(req, res, req.body);
         return;
       }
 
@@ -296,7 +296,7 @@ export class McpServer {
         });
         return;
       }
-      await transport.handleRequest(req, res);
+      await transport.handleRequest(req, res, req.body);
       return;
     }
 
@@ -319,7 +319,7 @@ export class McpServer {
         });
         return;
       }
-      await transport.handleRequest(req, res);
+      await transport.handleRequest(req, res, req.body);
       return;
     }
 

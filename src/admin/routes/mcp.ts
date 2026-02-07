@@ -6,7 +6,7 @@ const router = Router();
 // Tool definitions matching the MCP server
 const TOOL_DEFINITIONS = [
   {
-    name: 'catalog.search',
+    name: 'catalog_search',
     description: 'Fuzzy-search the data catalog for measures, dimensions, and segments',
     inputSchema: {
       type: 'object',
@@ -28,7 +28,7 @@ const TOOL_DEFINITIONS = [
     },
   },
   {
-    name: 'catalog.describe',
+    name: 'catalog_describe',
     description: 'Get detailed information about a specific catalog member',
     inputSchema: {
       type: 'object',
@@ -42,7 +42,7 @@ const TOOL_DEFINITIONS = [
     },
   },
   {
-    name: 'query.semantic',
+    name: 'query_semantic',
     description: 'Execute governed semantic queries against the data warehouse',
     inputSchema: {
       type: 'object',
