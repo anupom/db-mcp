@@ -55,7 +55,10 @@ Guidelines:
 - Be concise but helpful in your explanations`,
       messages,
       tools,
-      stopWhen: stepCountIs(10),
+      stopWhen: stepCountIs(25),
+      onStepFinish: (step) => {
+        logger.debug({ databaseId, finishReason: step.finishReason, toolCalls: step.toolCalls.length, usage: step.usage }, 'Step completed');
+      },
       onFinish: async () => {
         await mcpClient?.close();
       },
