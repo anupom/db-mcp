@@ -1,15 +1,14 @@
-import { useRef, useEffect, useState, useMemo, FormEvent, ChangeEvent } from 'react';
-import { useChat, Chat } from '@ai-sdk/react';
-import { DefaultChatTransport, UIMessage } from 'ai';
+import { useRef, useEffect, useState } from 'react';
+import { useChat } from '@ai-sdk/react';
+import { DefaultChatTransport } from 'ai';
 import { MessageCircle, Send, Loader2, AlertCircle, Trash2 } from 'lucide-react';
 import { useDatabaseContext } from '../context/DatabaseContext';
 import DatabaseSelector from '../components/shared/DatabaseSelector';
 import ChatMessage from '../components/chat/ChatMessage';
 
-// Internal chat component that requires a valid chatInstance
-function ChatInterface({ chatInstance, selectedDatabaseName }: { chatInstance: Chat<UIMessage>; selectedDatabaseName?: string }) {
+function ChatInterface({ databaseId, selectedDatabaseName }: { databaseId: string; selectedDatabaseName?: string }) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const [inputValue, setInputValue] = useState('');
+  const [input, setInput] = useState('');
 
   const {
     messages,
@@ -18,10 +17,12 @@ function ChatInterface({ chatInstance, selectedDatabaseName }: { chatInstance: C
     error,
     setMessages,
   } = useChat({
-    chat: chatInstance,
+    transport: new DefaultChatTransport({
+      api: `/api/chat?database=${databaseId}`,
+    }),
   });
 
-  const isLoading = status === 'submitted' || status === 'streaming';
+  const isReady = status === 'ready';
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
@@ -30,24 +31,7 @@ function ChatInterface({ chatInstance, selectedDatabaseName }: { chatInstance: C
 
   const handleClearChat = () => {
     setMessages([]);
-    setInputValue('');
-  };
-
-  const handleInputChange = (e: ChangeEvent<HTMLInputElement>) => {
-    setInputValue(e.target.value);
-  };
-
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!inputValue.trim() || isLoading) return;
-
-    const message = inputValue;
-    setInputValue('');
-    await sendMessage({ text: message });
-  };
-
-  const handleSuggestionClick = (prompt: string) => {
-    setInputValue(prompt);
+    setInput('');
   };
 
   const suggestedPrompts = [
@@ -105,7 +89,7 @@ function ChatInterface({ chatInstance, selectedDatabaseName }: { chatInstance: C
               {suggestedPrompts.map((prompt) => (
                 <button
                   key={prompt}
-                  onClick={() => handleSuggestionClick(prompt)}
+                  onClick={() => setInput(prompt)}
                   className="text-left px-4 py-3 bg-white border rounded-lg hover:border-blue-300 hover:bg-blue-50 transition-colors text-sm text-gray-700"
                 >
                   {prompt}
@@ -120,7 +104,7 @@ function ChatInterface({ chatInstance, selectedDatabaseName }: { chatInstance: C
             ))}
 
             {/* Loading indicator */}
-            {isLoading && (
+            {!isReady && (
               <div className="flex gap-3">
                 <div className="flex-shrink-0 w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center">
                   <Loader2 className="w-5 h-5 text-blue-600 animate-spin" />
@@ -151,22 +135,30 @@ function ChatInterface({ chatInstance, selectedDatabaseName }: { chatInstance: C
 
       {/* Input Area */}
       <div className="p-4 border-t bg-white">
-        <form onSubmit={handleSubmit} className="max-w-4xl mx-auto">
+        <form
+          onSubmit={e => {
+            e.preventDefault();
+            if (!input.trim() || !isReady) return;
+            sendMessage({ text: input });
+            setInput('');
+          }}
+          className="max-w-4xl mx-auto"
+        >
           <div className="flex gap-3">
             <input
               type="text"
-              value={inputValue}
-              onChange={handleInputChange}
+              value={input}
+              onChange={e => setInput(e.target.value)}
               placeholder="Ask about your data..."
               className="flex-1 px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              disabled={isLoading}
+              disabled={!isReady}
             />
             <button
               type="submit"
-              disabled={isLoading || !inputValue.trim()}
+              disabled={!isReady || !input.trim()}
               className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
             >
-              {isLoading ? (
+              {!isReady ? (
                 <Loader2 className="w-5 h-5 animate-spin" />
               ) : (
                 <Send className="w-5 h-5" />
@@ -185,28 +177,11 @@ function ChatInterface({ chatInstance, selectedDatabaseName }: { chatInstance: C
 
 export default function ChatPage() {
   const { databaseId, activeDatabases } = useDatabaseContext();
-
-  // Create a new chat instance when databaseId changes
-  const chatInstance = useMemo(() => {
-    if (!databaseId) return null;
-
-    const chatTransport = new DefaultChatTransport({
-      api: `/api/chat?database=${databaseId}`,
-    });
-
-    return new Chat({
-      transport: chatTransport,
-    });
-  }, [databaseId]);
-
-  // Get selected database name
   const selectedDatabase = activeDatabases.find((db) => db.id === databaseId);
 
-  // Show prompt if no database selected
-  if (!databaseId || !chatInstance) {
+  if (!databaseId) {
     return (
       <div className="h-full flex flex-col">
-        {/* Header */}
         <div className="p-6 border-b bg-white">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -220,7 +195,6 @@ export default function ChatPage() {
           </div>
         </div>
 
-        {/* No Database Selected */}
         <div className="flex-1 flex flex-col items-center justify-center bg-gray-50 p-6">
           <AlertCircle className="w-16 h-16 text-yellow-500 mb-4" />
           <h2 className="text-xl font-semibold text-gray-700 mb-2">No Database Selected</h2>
@@ -235,7 +209,7 @@ export default function ChatPage() {
   return (
     <ChatInterface
       key={databaseId}
-      chatInstance={chatInstance}
+      databaseId={databaseId}
       selectedDatabaseName={selectedDatabase?.name}
     />
   );

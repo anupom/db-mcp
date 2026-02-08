@@ -29,7 +29,7 @@ export async function enhanceCubeWithLLM(
   sampleData?: Record<string, unknown>[]
 ): Promise<CubeConfig> {
   const { object } = await generateObject({
-    model: anthropic('claude-sonnet-4-20250514'),
+    model: anthropic('claude-sonnet-4-5-20250929'),
     schema: EnhancedCubeSchema,
     prompt: `You are enhancing a Cube.js cube definition. Cube.js is a semantic layer for analytics that sits between your database and applications.
 

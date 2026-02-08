@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { anthropic } from '@ai-sdk/anthropic';
-import { streamText, pipeUIMessageStreamToResponse, stepCountIs, convertToModelMessages, UIMessage } from 'ai';
+import { streamText, stepCountIs, convertToModelMessages, UIMessage } from 'ai';
 import { createMCPClient, MCPClient } from '@ai-sdk/mcp';
 import { getLogger } from '../../utils/logger.js';
 
@@ -37,7 +37,7 @@ router.post('/', async (req: Request, res: Response) => {
     const messages = await convertToModelMessages(uiMessages);
 
     const result = streamText({
-      model: anthropic('claude-sonnet-4-20250514'),
+      model: anthropic('claude-sonnet-4-5-20250929'),
       system: `You are a helpful data assistant for a semantic layer built on Cube.js. You help users explore and query data through the available tools.
 
 Available capabilities:
@@ -61,10 +61,7 @@ Guidelines:
       },
     });
 
-    pipeUIMessageStreamToResponse({
-      response: res,
-      stream: result.toUIMessageStream(),
-    });
+    result.pipeUIMessageStreamToResponse(res);
   } catch (error) {
     logger.error({ error, databaseId }, 'Chat error');
     await mcpClient?.close();
