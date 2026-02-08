@@ -341,8 +341,6 @@ export const databasesApi = {
   activate: (id: string) =>
     fetchApi<{
       success: boolean;
-      cubeRestartRequired?: boolean;
-      cubeRestartMessage?: string;
     }>(`/databases/${id}/activate`, {
       method: 'POST',
     }),
@@ -350,8 +348,6 @@ export const databasesApi = {
   deactivate: (id: string) =>
     fetchApi<{
       success: boolean;
-      cubeRestartRequired?: boolean;
-      cubeRestartMessage?: string;
     }>(`/databases/${id}/deactivate`, {
       method: 'POST',
     }),

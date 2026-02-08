@@ -140,8 +140,15 @@ export class DatabaseManager {
     this.initializeDataDirectory(config.id);
 
     // Create database record - use global JWT secret if not provided
+    // Don't persist cubeApiUrl if it matches the env var default — the runtime
+    // fallback handles it and avoids baking in environment-specific hostnames
+    // (e.g. localhost:4000 in local dev vs cube:4000 in Docker)
+    const cubeApiUrl = config.cubeApiUrl === globalConfig.CUBE_API_URL
+      ? undefined
+      : config.cubeApiUrl;
     const databaseWithDefaults = {
       ...config,
+      cubeApiUrl,
       jwtSecret: config.jwtSecret || globalConfig.CUBE_JWT_SECRET,
     };
     const database = this.store.create(databaseWithDefaults);
@@ -187,7 +194,13 @@ export class DatabaseManager {
       throw new Error('Cannot update connection while database is active. Deactivate first.');
     }
 
-    const updated = this.store.update(config);
+    // Don't persist cubeApiUrl if it matches the env var default — the runtime
+    // fallback handles it and avoids baking in environment-specific hostnames
+    const globalConfig = getConfig();
+    const updateConfig = config.cubeApiUrl === globalConfig.CUBE_API_URL
+      ? { ...config, cubeApiUrl: null }
+      : config;
+    const updated = this.store.update(updateConfig);
     if (updated) {
       this.emit({ type: 'updated', database: updated });
     }
@@ -381,23 +394,6 @@ export class DatabaseManager {
     const exportPath = join(this.dataDir, 'cube-connections.json');
     await writeFile(exportPath, JSON.stringify(connections, null, 2));
     logger.info({ path: exportPath, count: Object.keys(connections).length }, 'Exported database connections for Cube.js');
-
-    // Notify about Cube.js restart requirement
-    // In dev mode, Cube.js caches schemas and driver instances
-    logger.warn(
-      'Database connections updated. Cube.js may need a restart to pick up changes. ' +
-      'Run: docker-compose restart cube'
-    );
-  }
-
-  /**
-   * Check if Cube.js needs restart (connections file changed since last export)
-   */
-  cubeRestartRequired(): { required: boolean; message: string } {
-    return {
-      required: true,
-      message: 'Database connections were updated. Restart Cube.js to apply changes: docker-compose restart cube',
-    };
   }
 
   /**
@@ -426,7 +422,6 @@ export class DatabaseManager {
         user: process.env.POSTGRES_USER ?? 'cube',
         password: process.env.POSTGRES_PASSWORD ?? 'cube',
       },
-      cubeApiUrl: globalConfig.CUBE_API_URL,
       jwtSecret: globalConfig.CUBE_JWT_SECRET,
       maxLimit: globalConfig.MAX_LIMIT,
       denyMembers: globalConfig.DENY_MEMBERS,

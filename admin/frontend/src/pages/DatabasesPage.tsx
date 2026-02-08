@@ -28,7 +28,7 @@ import {
   type DatabaseType,
 } from '../api/client';
 import DatabaseFormModal from '../components/databases/DatabaseFormModal';
-import { Toast } from '../components/shared/Toast';
+
 
 const STATUS_ICONS: Record<DatabaseStatus, typeof CheckCircle> = {
   active: CheckCircle,
@@ -59,7 +59,7 @@ export default function DatabasesPage() {
   const [error, setError] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
-  const [toast, setToast] = useState<{ message: string; type: 'info' | 'warning' | 'success' | 'error' } | null>(null);
+
   const [justInitialized, setJustInitialized] = useState(false);
   const [copiedEndpoint, setCopiedEndpoint] = useState(false);
   const [copiedConfig, setCopiedConfig] = useState(false);
@@ -84,14 +84,8 @@ export default function DatabasesPage() {
   const handleActivate = async (id: string) => {
     try {
       setActionLoading(id);
-      const result = await databasesApi.activate(id);
+      await databasesApi.activate(id);
       await fetchDatabases();
-      if (result.cubeRestartRequired) {
-        setToast({
-          message: 'Database activated. Changes may take a moment to apply. Run `docker compose restart` if needed.',
-          type: 'warning',
-        });
-      }
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to activate database');
     } finally {
@@ -102,14 +96,8 @@ export default function DatabasesPage() {
   const handleDeactivate = async (id: string) => {
     try {
       setActionLoading(id);
-      const result = await databasesApi.deactivate(id);
+      await databasesApi.deactivate(id);
       await fetchDatabases();
-      if (result.cubeRestartRequired) {
-        setToast({
-          message: 'Database deactivated. Changes may take a moment to apply. Run `docker compose restart` if needed.',
-          type: 'warning',
-        });
-      }
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to deactivate database');
     } finally {
@@ -513,14 +501,6 @@ export default function DatabasesPage() {
         />
       )}
 
-      {/* Toast Notification */}
-      {toast && (
-        <Toast
-          message={toast.message}
-          type={toast.type}
-          onClose={() => setToast(null)}
-        />
-      )}
     </div>
   );
 }

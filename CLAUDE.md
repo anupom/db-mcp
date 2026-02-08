@@ -64,7 +64,7 @@ Databases (PostgreSQL, MySQL, BigQuery, Snowflake, Redshift, ClickHouse)
 - `src/policy/` — Query governance: validates members exist/exposed/not-PII, enforces limits, applies default segments/filters, checks groupBy restrictions
 - `src/query/` — Query execution: policy enforcement → Cube.js API call → audit log
 - `src/cube/` — Cube.js API client with multi-tenant JWT (includes `databaseId` in payload)
-- `cube/cube.js` — Cube.js multi-tenant config: `driverFactory`, `contextToAppId`, `contextToOrchestratorId`, `repositoryFactory`
+- `cube/cube.js` — Cube.js multi-tenant config: `schemaVersion`, `driverFactory`, `contextToAppId`, `contextToOrchestratorId`, `repositoryFactory`
 - `admin/frontend/src/` — React app: pages (Databases, Tables, Governance, Playground, Chat, MCP), components, DatabaseContext
 
 ### Multi-tenant database routing
@@ -74,6 +74,7 @@ Databases (PostgreSQL, MySQL, BigQuery, Snowflake, Redshift, ClickHouse)
 3. `driverFactory` reads `data/cube-connections.json` to select the correct database driver per tenant
 4. `repositoryFactory` points to `data/databases/{databaseId}/cube/model/` for per-database cube schemas
 5. **Critical**: `contextToOrchestratorId` is required — without it all tenants share one driver and queries hit the wrong database
+6. `schemaVersion` returns max file mtime per database — Cube.js recompiles schemas automatically when files change (no restart needed)
 
 ### Per-database data layout
 

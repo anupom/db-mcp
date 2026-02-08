@@ -42,14 +42,10 @@ docker compose up
 1. Open [http://localhost:3000](http://localhost:3000) and click **Add Database**
 2. Fill in the connection form and click **Test Connection** to verify
 3. **Generate cubes** — go to the **Tables** page, click **Generate All Cubes** (or generate per-table). This creates the YAML definitions that tell the semantic layer what's queryable.
-4. **Restart the semantic layer** so it picks up the new cubes:
-   ```bash
-   docker compose restart cube
-   ```
-5. **Configure governance** (optional) — go to the **Governance** page to mark PII fields, control member exposure, and set query restrictions
-6. Your MCP endpoint is live at `http://localhost:3000/mcp/{your-database-id}`
+4. **Configure governance** (optional) — go to the **Governance** page to mark PII fields, control member exposure, and set query restrictions
+5. Your MCP endpoint is live at `http://localhost:3000/mcp/{your-database-id}`
 
-> **Important:** Without generating cubes (step 3) and restarting (step 4), MCP tools will return no data. These are the most commonly missed steps.
+> **Important:** Without generating cubes (step 3), MCP tools will return no data. The semantic layer automatically picks up new and changed cube files — no restart needed.
 
 ## How It Works
 
@@ -94,7 +90,7 @@ cubes:
 
 **Supported dimension types:** `string`, `number`, `time`, `boolean`
 
-After adding or changing cube files, restart the semantic layer: `docker compose restart cube`
+The semantic layer automatically detects new and changed cube files — no restart needed.
 
 ## Governance
 

@@ -207,12 +207,9 @@ router.post('/:id/activate', async (req: Request, res: Response) => {
 
     const { id } = req.params;
     await manager.activateDatabase(id);
-    const cubeStatus = manager.cubeRestartRequired();
     res.json({
       success: true,
       message: `Database '${id}' activated`,
-      cubeRestartRequired: cubeStatus.required,
-      cubeRestartMessage: cubeStatus.message,
     });
   } catch (error) {
     console.error('Error activating database:', error);
@@ -232,12 +229,9 @@ router.post('/:id/deactivate', async (req: Request, res: Response) => {
 
     const { id } = req.params;
     await manager.deactivateDatabase(id);
-    const cubeStatus = manager.cubeRestartRequired();
     res.json({
       success: true,
       message: `Database '${id}' deactivated`,
-      cubeRestartRequired: cubeStatus.required,
-      cubeRestartMessage: cubeStatus.message,
     });
   } catch (error) {
     console.error('Error deactivating database:', error);

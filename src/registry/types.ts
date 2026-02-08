@@ -81,7 +81,10 @@ export type CreateDatabaseConfig = z.infer<typeof CreateDatabaseConfigSchema>;
 /**
  * Database configuration for updates (all fields optional except id)
  */
-export const UpdateDatabaseConfigSchema = DatabaseConfigSchema.partial().required({ id: true });
+export const UpdateDatabaseConfigSchema = DatabaseConfigSchema.partial().required({ id: true }).extend({
+  // Allow null to explicitly clear cubeApiUrl (fall back to env var default)
+  cubeApiUrl: z.string().url().optional().nullable(),
+});
 
 export type UpdateDatabaseConfig = z.infer<typeof UpdateDatabaseConfigSchema>;
 

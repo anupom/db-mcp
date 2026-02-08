@@ -1,1 +1,20 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+admin/frontend/dist/
+
+# Environment
+.env
+
+# Runtime data
+data/
+cube/.cubestore/
+
+# Test output
 test-results/
+
+# IDE / tools
+.claude/
+.playwright-mcp/
