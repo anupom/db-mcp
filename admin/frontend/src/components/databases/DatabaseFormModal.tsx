@@ -389,22 +389,22 @@ export default function DatabaseFormModal({ onClose, onSuccess }: Props) {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Cube API URL (optional)
+                    Semantic Layer URL (optional)
                   </label>
                   <input
                     type="url"
                     value={cubeApiUrl}
                     onChange={(e) => setCubeApiUrl(e.target.value)}
                     className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="http://localhost:4000/cubejs-api/v1"
+                    placeholder="Leave empty to use the default"
                   />
                   <p className="text-xs text-gray-500 mt-1">
-                    Leave empty to use the global Cube API URL
+                    Leave empty to use the default semantic layer endpoint
                   </p>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    JWT Secret (optional)
+                    API Secret (optional)
                   </label>
                   <input
                     type="password"

@@ -3,6 +3,7 @@ import { anthropic } from '@ai-sdk/anthropic';
 import { streamText, stepCountIs, convertToModelMessages, UIMessage } from 'ai';
 import { createMCPClient, MCPClient } from '@ai-sdk/mcp';
 import { getLogger } from '../../utils/logger.js';
+import { getConfig } from '../../config.js';
 
 const router = Router();
 const logger = getLogger().child({ component: 'chat' });
@@ -23,10 +24,11 @@ router.post('/', async (req: Request, res: Response) => {
 
   let mcpClient: MCPClient | undefined;
   try {
+    const config = getConfig();
     mcpClient = await createMCPClient({
       transport: {
         type: 'http',
-        url: `http://localhost:3000/mcp/${databaseId}`,
+        url: `http://localhost:${config.MCP_HTTP_PORT}/mcp/${databaseId}`,
       },
     });
 
@@ -38,7 +40,7 @@ router.post('/', async (req: Request, res: Response) => {
 
     const result = streamText({
       model: anthropic('claude-sonnet-4-5-20250929'),
-      system: `You are a helpful data assistant for a semantic layer built on Cube.js. You help users explore and query data through the available tools.
+      system: `You are a helpful data assistant for a semantic analytics layer. You help users explore and query data through the available tools.
 
 Available capabilities:
 - Search the catalog to find measures, dimensions, and cubes

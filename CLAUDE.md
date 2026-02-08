@@ -4,11 +4,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What is DB-MCP
 
-An MCP server that provides governed semantic analytics queries through Cube.js with multi-database support. It bridges AI assistants and data warehouses by exposing a Cube.js semantic layer as MCP tools with governance policies (PII blocking, query limits, member exposure controls).
+An MCP server that provides governed semantic analytics queries through a multi-tenant semantic layer with multi-database support. It bridges AI assistants and data warehouses by exposing a semantic layer as MCP tools with governance policies (PII blocking, query limits, member exposure controls).
 
 ## Commands
 
 ```bash
+# Docker demo — single command, everything on port 3000
+docker compose up
+
+# Local development — infrastructure on exposed ports
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres cube
+
 # Backend development (port 3000)
 npm run dev              # Run with tsx (hot reload)
 npm run build            # TypeScript compile to dist/
@@ -17,15 +23,10 @@ npm run lint             # ESLint on src/
 npm run test             # Vitest (run once)
 npm run test:watch       # Vitest (watch mode)
 
-# Frontend development (port 3001 in dev, nginx proxy in Docker)
+# Frontend development (port 3001 in dev)
 cd admin/frontend
-npm run dev              # Vite dev server on :5173
+npm run dev              # Vite dev server on :3001
 npm run build            # TypeScript + Vite build to dist/
-
-# Infrastructure
-docker compose up -d postgres cube    # Start PostgreSQL (5434) + Cube.js (4000)
-docker compose up -d                  # All services including backend + frontend
-docker compose restart cube           # Required after changes to cube/cube.js
 
 # E2E tests (Playwright)
 npx playwright test                   # Runs against localhost:3001, test dir: ./e2e
@@ -34,16 +35,20 @@ npx playwright test                   # Runs against localhost:3001, test dir: .
 ## Architecture
 
 ```
-Admin UI (React+Vite+Tailwind) :3001
-        │ nginx proxies /api/*
+localhost:3000 (nginx — single entry point)
+├── /api/*          → Express Backend (Admin REST API)
+├── /mcp/:id        → Express Backend (MCP Streamable HTTP + SSE)
+├── /health         → Express Backend (health check)
+└── /*              → React SPA (static files)
+        │
         ▼
-Express Backend :3000
+Express Backend (internal, no host port)
 ├── /api/*          Admin REST API (databases, cubes, catalog, query, chat)
 ├── /mcp/:databaseId  MCP HTTP streaming (sessions per database)
 └── /health
         │
         ▼
-Cube.js :4000 (Docker, multi-tenant via JWT securityContext)
+Cube.js (internal, no host port — Docker healthcheck)
         │
         ▼
 Databases (PostgreSQL, MySQL, BigQuery, Snowflake, Redshift, ClickHouse)

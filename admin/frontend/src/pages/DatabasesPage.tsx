@@ -11,6 +11,15 @@ import {
   XCircle,
   AlertCircle,
   Loader2,
+  Rocket,
+  Link,
+  Copy,
+  Check,
+  ArrowRight,
+  Table2,
+  Shield,
+  MessageSquare,
+  Cable,
 } from 'lucide-react';
 import {
   databasesApi,
@@ -51,6 +60,9 @@ export default function DatabasesPage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string; type: 'info' | 'warning' | 'success' | 'error' } | null>(null);
+  const [justInitialized, setJustInitialized] = useState(false);
+  const [copiedEndpoint, setCopiedEndpoint] = useState(false);
+  const [copiedConfig, setCopiedConfig] = useState(false);
 
   const fetchDatabases = async () => {
     try {
@@ -76,7 +88,7 @@ export default function DatabasesPage() {
       await fetchDatabases();
       if (result.cubeRestartRequired) {
         setToast({
-          message: `Database activated.\n\nRestart Cube.js to apply changes:\ndocker-compose restart cube`,
+          message: 'Database activated. Changes may take a moment to apply. Run `docker compose restart` if needed.',
           type: 'warning',
         });
       }
@@ -94,7 +106,7 @@ export default function DatabasesPage() {
       await fetchDatabases();
       if (result.cubeRestartRequired) {
         setToast({
-          message: `Database deactivated.\n\nRestart Cube.js to apply changes:\ndocker-compose restart cube`,
+          message: 'Database deactivated. Changes may take a moment to apply. Run `docker compose restart` if needed.',
           type: 'warning',
         });
       }
@@ -138,6 +150,7 @@ export default function DatabasesPage() {
       setLoading(true);
       await databasesApi.initializeDefault();
       await fetchDatabases();
+      setJustInitialized(true);
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to initialize default database');
     } finally {
@@ -150,10 +163,182 @@ export default function DatabasesPage() {
     fetchDatabases();
   };
 
+  const mcpEndpoint = typeof window !== 'undefined' ? `${window.location.origin}/mcp/default` : '/mcp/default';
+
+  const claudeConfig = JSON.stringify({
+    mcpServers: {
+      'db-mcp': {
+        url: mcpEndpoint,
+      },
+    },
+  }, null, 2);
+
+  const copyEndpoint = () => {
+    navigator.clipboard.writeText(mcpEndpoint);
+    setCopiedEndpoint(true);
+    setTimeout(() => setCopiedEndpoint(false), 2000);
+  };
+
+  const copyConfig = () => {
+    navigator.clipboard.writeText(claudeConfig);
+    setCopiedConfig(true);
+    setTimeout(() => setCopiedConfig(false), 2000);
+  };
+
   if (loading && databases.length === 0) {
     return (
       <div className="p-6 flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-gray-400" />
+      </div>
+    );
+  }
+
+  // Success screen after initializing demo data
+  if (justInitialized) {
+    return (
+      <div className="p-6 max-w-3xl mx-auto">
+        <div className="text-center mb-8">
+          <div className="inline-flex items-center justify-center w-16 h-16 bg-green-100 rounded-full mb-4">
+            <CheckCircle className="w-8 h-8 text-green-600" />
+          </div>
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">You're all set!</h1>
+          <p className="text-gray-500">
+            The demo e-commerce database is ready. Connect your AI assistant using the MCP endpoint below.
+          </p>
+        </div>
+
+        {/* MCP Endpoint */}
+        <div className="bg-white rounded-lg shadow p-6 mb-4">
+          <h3 className="text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
+            <Link className="w-4 h-4" />
+            MCP Endpoint
+          </h3>
+          <div className="flex items-center gap-2">
+            <code className="flex-1 bg-gray-50 px-4 py-2 rounded-lg text-sm font-mono text-gray-800 border">
+              {mcpEndpoint}
+            </code>
+            <button
+              onClick={copyEndpoint}
+              className="px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-gray-600"
+              title="Copy endpoint"
+            >
+              {copiedEndpoint ? <Check className="w-4 h-4 text-green-600" /> : <Copy className="w-4 h-4" />}
+            </button>
+          </div>
+        </div>
+
+        {/* Claude Desktop Config */}
+        <div className="bg-white rounded-lg shadow p-6 mb-6">
+          <h3 className="text-sm font-medium text-gray-700 mb-2">Claude Desktop Configuration</h3>
+          <p className="text-xs text-gray-500 mb-3">
+            Add this to your Claude Desktop settings (Settings &gt; MCP Servers):
+          </p>
+          <div className="relative">
+            <pre className="bg-gray-50 px-4 py-3 rounded-lg text-sm font-mono text-gray-800 border overflow-x-auto">
+              {claudeConfig}
+            </pre>
+            <button
+              onClick={copyConfig}
+              className="absolute top-2 right-2 px-2 py-1 bg-white hover:bg-gray-100 rounded border text-xs text-gray-600 flex items-center gap-1"
+            >
+              {copiedConfig ? <><Check className="w-3 h-3 text-green-600" /> Copied</> : <><Copy className="w-3 h-3" /> Copy</>}
+            </button>
+          </div>
+        </div>
+
+        {/* Next Steps */}
+        <div className="bg-blue-50 rounded-lg p-6 mb-6">
+          <h3 className="font-medium text-blue-900 mb-3">Next Steps</h3>
+          <div className="grid grid-cols-2 gap-3">
+            <a href="/tables" className="flex items-center gap-2 text-sm text-blue-700 hover:text-blue-900">
+              <Table2 className="w-4 h-4" /> Explore tables and generate cubes
+            </a>
+            <a href="/governance" className="flex items-center gap-2 text-sm text-blue-700 hover:text-blue-900">
+              <Shield className="w-4 h-4" /> Configure governance rules
+            </a>
+            <a href="/chat" className="flex items-center gap-2 text-sm text-blue-700 hover:text-blue-900">
+              <MessageSquare className="w-4 h-4" /> Try the AI chat interface
+            </a>
+            <a href="/mcp" className="flex items-center gap-2 text-sm text-blue-700 hover:text-blue-900">
+              <Cable className="w-4 h-4" /> View MCP tools and config
+            </a>
+          </div>
+        </div>
+
+        <div className="text-center">
+          <button
+            onClick={() => setJustInitialized(false)}
+            className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 inline-flex items-center gap-2"
+          >
+            Continue to Dashboard
+            <ArrowRight className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Welcome screen when no databases exist
+  if (databases.length === 0 && !loading) {
+    return (
+      <div className="p-6 max-w-3xl mx-auto">
+        <div className="text-center mb-8">
+          <div className="inline-flex items-center justify-center w-16 h-16 bg-blue-100 rounded-full mb-4">
+            <Database className="w-8 h-8 text-blue-600" />
+          </div>
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">Welcome to DB-MCP</h1>
+          <p className="text-gray-500">
+            Connect your database to give AI assistants governed access to your data through MCP.
+          </p>
+        </div>
+
+        {error && (
+          <div className="mb-6 p-4 bg-red-50 text-red-700 rounded-lg flex items-center gap-2">
+            <AlertCircle className="w-5 h-5" />
+            {error}
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Demo Data Card */}
+          <button
+            onClick={handleInitializeDefault}
+            className="bg-white rounded-lg shadow hover:shadow-md transition-shadow p-6 text-left border-2 border-transparent hover:border-blue-200"
+          >
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
+                <Rocket className="w-5 h-5 text-blue-600" />
+              </div>
+              <h3 className="font-semibold text-gray-900">Try with Demo Data</h3>
+            </div>
+            <p className="text-sm text-gray-500">
+              Set up the built-in e-commerce database with sample orders, products, and users. Perfect for exploring the platform.
+            </p>
+          </button>
+
+          {/* Connect Database Card */}
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="bg-white rounded-lg shadow hover:shadow-md transition-shadow p-6 text-left border-2 border-transparent hover:border-blue-200"
+          >
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center">
+                <Plus className="w-5 h-5 text-gray-600" />
+              </div>
+              <h3 className="font-semibold text-gray-900">Connect Your Database</h3>
+            </div>
+            <p className="text-sm text-gray-500">
+              Connect PostgreSQL, MySQL, BigQuery, Snowflake, Redshift, or ClickHouse. Configure governance and generate cubes.
+            </p>
+          </button>
+        </div>
+
+        {showCreateModal && (
+          <DatabaseFormModal
+            onClose={() => setShowCreateModal(false)}
+            onSuccess={handleDatabaseCreated}
+          />
+        )}
       </div>
     );
   }
@@ -195,31 +380,6 @@ export default function DatabasesPage() {
         <div className="mb-4 p-4 bg-red-50 text-red-700 rounded-lg flex items-center gap-2">
           <AlertCircle className="w-5 h-5" />
           {error}
-        </div>
-      )}
-
-      {/* Empty state */}
-      {databases.length === 0 && !loading && (
-        <div className="text-center py-12 bg-gray-50 rounded-lg">
-          <Database className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 mb-2">No databases configured</h3>
-          <p className="text-gray-500 mb-4">
-            Get started by adding a database connection or initializing the default database.
-          </p>
-          <div className="flex gap-2 justify-center">
-            <button
-              onClick={handleInitializeDefault}
-              className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
-            >
-              Initialize Default
-            </button>
-            <button
-              onClick={() => setShowCreateModal(true)}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-            >
-              Add Database
-            </button>
-          </div>
         </div>
       )}
 
