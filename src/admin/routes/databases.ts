@@ -33,7 +33,7 @@ const CreateDatabaseSchema = z.object({
 const UpdateDatabaseSchema = CreateDatabaseSchema.partial().omit({ id: true });
 
 // GET /api/databases - List all databases
-router.get('/', async (_req: Request, res: Response) => {
+router.get('/', async (req: Request, res: Response) => {
   try {
     const manager = getDatabaseManager();
     if (!manager) {
@@ -41,7 +41,8 @@ router.get('/', async (_req: Request, res: Response) => {
       return;
     }
 
-    const databases = manager.listDatabases();
+    const tenantId = req.tenant?.tenantId;
+    const databases = manager.listDatabases(tenantId);
     res.json({ databases });
   } catch (error) {
     console.error('Error listing databases:', error);
@@ -59,6 +60,7 @@ router.post('/', async (req: Request, res: Response) => {
       return;
     }
 
+    const tenantId = req.tenant?.tenantId;
     const input = CreateDatabaseSchema.parse(req.body);
     // Add defaults for required fields
     const createInput = {
@@ -68,7 +70,7 @@ router.post('/', async (req: Request, res: Response) => {
       defaultSegments: input.defaultSegments ?? [],
       returnSql: input.returnSql ?? false,
     };
-    const database = await manager.createDatabase(createInput);
+    const database = await manager.createDatabase(createInput, tenantId);
     res.status(201).json({ database });
   } catch (error) {
     console.error('Error creating database:', error);
@@ -94,7 +96,8 @@ router.get('/:id', async (req: Request, res: Response) => {
     }
 
     const { id } = req.params;
-    const database = manager.getDatabase(id);
+    const tenantId = req.tenant?.tenantId;
+    const database = manager.getDatabase(id, tenantId);
 
     if (!database) {
       res.status(404).json({ error: `Database '${id}' not found` });
@@ -129,8 +132,9 @@ router.put('/:id', async (req: Request, res: Response) => {
     }
 
     const { id } = req.params;
+    const tenantId = req.tenant?.tenantId;
     const input = UpdateDatabaseSchema.parse(req.body);
-    const database = await manager.updateDatabase({ id, ...input });
+    const database = await manager.updateDatabase({ id, ...input }, tenantId);
 
     if (!database) {
       res.status(404).json({ error: `Database '${id}' not found` });
@@ -162,7 +166,8 @@ router.delete('/:id', async (req: Request, res: Response) => {
     }
 
     const { id } = req.params;
-    const deleted = await manager.deleteDatabase(id);
+    const tenantId = req.tenant?.tenantId;
+    const deleted = await manager.deleteDatabase(id, tenantId);
 
     if (!deleted) {
       res.status(404).json({ error: `Database '${id}' not found` });
@@ -187,7 +192,16 @@ router.post('/:id/test', async (req: Request, res: Response) => {
     }
 
     const { id } = req.params;
-    const result = await manager.testConnection(id);
+    const tenantId = req.tenant?.tenantId;
+
+    // Verify ownership first
+    const db = manager.getDatabase(id, tenantId);
+    if (!db) {
+      res.status(404).json({ success: false, message: `Database '${id}' not found` });
+      return;
+    }
+
+    const result = await manager.testConnection(id, tenantId);
     res.json(result);
   } catch (error) {
     console.error('Error testing connection:', error);
@@ -206,7 +220,8 @@ router.post('/:id/activate', async (req: Request, res: Response) => {
     }
 
     const { id } = req.params;
-    await manager.activateDatabase(id);
+    const tenantId = req.tenant?.tenantId;
+    await manager.activateDatabase(id, tenantId);
     res.json({
       success: true,
       message: `Database '${id}' activated`,
@@ -228,7 +243,8 @@ router.post('/:id/deactivate', async (req: Request, res: Response) => {
     }
 
     const { id } = req.params;
-    await manager.deactivateDatabase(id);
+    const tenantId = req.tenant?.tenantId;
+    await manager.deactivateDatabase(id, tenantId);
     res.json({
       success: true,
       message: `Database '${id}' deactivated`,

@@ -116,11 +116,11 @@ export class DatabaseManager {
   /**
    * Create a new database
    */
-  async createDatabase(config: CreateDatabaseConfig): Promise<DatabaseConfig> {
-    logger.info({ id: config.id, name: config.name }, 'Creating database');
+  async createDatabase(config: CreateDatabaseConfig, tenantId?: string): Promise<DatabaseConfig> {
+    logger.info({ id: config.id, name: config.name, tenantId }, 'Creating database');
 
     // Validate ID doesn't exist
-    if (this.store.exists(config.id)) {
+    if (this.store.exists(config.id, tenantId)) {
       throw new Error(`Database with ID '${config.id}' already exists`);
     }
 
@@ -151,7 +151,7 @@ export class DatabaseManager {
       cubeApiUrl,
       jwtSecret: config.jwtSecret || globalConfig.CUBE_JWT_SECRET,
     };
-    const database = this.store.create(databaseWithDefaults);
+    const database = this.store.create(databaseWithDefaults, tenantId);
 
     this.emit({ type: 'created', database });
     return database;
@@ -160,31 +160,31 @@ export class DatabaseManager {
   /**
    * Get a database by ID
    */
-  getDatabase(id: string): DatabaseConfig | null {
-    return this.store.get(id);
+  getDatabase(id: string, tenantId?: string): DatabaseConfig | null {
+    return this.store.get(id, tenantId);
   }
 
   /**
    * List all databases
    */
-  listDatabases(): DatabaseSummary[] {
-    return this.store.list();
+  listDatabases(tenantId?: string): DatabaseSummary[] {
+    return this.store.list(tenantId);
   }
 
   /**
    * List active databases with full config
    */
-  listActiveDatabases(): DatabaseConfig[] {
-    return this.store.listActive();
+  listActiveDatabases(tenantId?: string): DatabaseConfig[] {
+    return this.store.listActive(tenantId);
   }
 
   /**
    * Update a database
    */
-  async updateDatabase(config: UpdateDatabaseConfig): Promise<DatabaseConfig | null> {
-    logger.info({ id: config.id }, 'Updating database');
+  async updateDatabase(config: UpdateDatabaseConfig, tenantId?: string): Promise<DatabaseConfig | null> {
+    logger.info({ id: config.id, tenantId }, 'Updating database');
 
-    const existing = this.store.get(config.id);
+    const existing = this.store.get(config.id, tenantId);
     if (!existing) {
       throw new Error(`Database '${config.id}' not found`);
     }
@@ -200,7 +200,7 @@ export class DatabaseManager {
     const updateConfig = config.cubeApiUrl === globalConfig.CUBE_API_URL
       ? { ...config, cubeApiUrl: null }
       : config;
-    const updated = this.store.update(updateConfig);
+    const updated = this.store.update(updateConfig, tenantId);
     if (updated) {
       this.emit({ type: 'updated', database: updated });
     }
@@ -210,10 +210,10 @@ export class DatabaseManager {
   /**
    * Delete a database
    */
-  async deleteDatabase(id: string): Promise<boolean> {
-    logger.info({ id }, 'Deleting database');
+  async deleteDatabase(id: string, tenantId?: string): Promise<boolean> {
+    logger.info({ id, tenantId }, 'Deleting database');
 
-    const existing = this.store.get(id);
+    const existing = this.store.get(id, tenantId);
     if (!existing) {
       return false;
     }
@@ -228,7 +228,7 @@ export class DatabaseManager {
       throw new Error('Cannot delete the default database');
     }
 
-    const deleted = this.store.delete(id);
+    const deleted = this.store.delete(id, tenantId);
     if (deleted) {
       this.emit({ type: 'deleted', databaseId: id });
       // Export updated connections for Cube.js
@@ -240,8 +240,8 @@ export class DatabaseManager {
   /**
    * Test database connection
    */
-  async testConnection(id: string): Promise<DatabaseTestResult> {
-    const config = this.store.get(id);
+  async testConnection(id: string, tenantId?: string): Promise<DatabaseTestResult> {
+    const config = this.store.get(id, tenantId);
     if (!config) {
       return { success: false, message: `Database '${id}' not found` };
     }
@@ -293,10 +293,10 @@ export class DatabaseManager {
   /**
    * Activate a database (make it available for MCP endpoints)
    */
-  async activateDatabase(id: string): Promise<void> {
-    logger.info({ id }, 'Activating database');
+  async activateDatabase(id: string, tenantId?: string): Promise<void> {
+    logger.info({ id, tenantId }, 'Activating database');
 
-    const config = this.store.get(id);
+    const config = this.store.get(id, tenantId);
     if (!config) {
       throw new Error(`Database '${id}' not found`);
     }
@@ -306,14 +306,14 @@ export class DatabaseManager {
     }
 
     // Test connection first
-    const testResult = await this.testConnection(id);
+    const testResult = await this.testConnection(id, tenantId);
     if (!testResult.success) {
-      this.store.updateStatus(id, 'error', testResult.message);
+      this.store.updateStatus(id, 'error', testResult.message, tenantId);
       throw new Error(`Connection test failed: ${testResult.message}`);
     }
 
     // Update status to active
-    this.store.updateStatus(id, 'active');
+    this.store.updateStatus(id, 'active', undefined, tenantId);
     this.emit({ type: 'activated', databaseId: id });
 
     // Export updated connections for Cube.js
@@ -323,10 +323,10 @@ export class DatabaseManager {
   /**
    * Deactivate a database (stop serving MCP endpoints)
    */
-  async deactivateDatabase(id: string): Promise<void> {
-    logger.info({ id }, 'Deactivating database');
+  async deactivateDatabase(id: string, tenantId?: string): Promise<void> {
+    logger.info({ id, tenantId }, 'Deactivating database');
 
-    const config = this.store.get(id);
+    const config = this.store.get(id, tenantId);
     if (!config) {
       throw new Error(`Database '${id}' not found`);
     }
@@ -336,7 +336,7 @@ export class DatabaseManager {
     }
 
     // Update status to inactive
-    this.store.updateStatus(id, 'inactive');
+    this.store.updateStatus(id, 'inactive', undefined, tenantId);
     this.emit({ type: 'deactivated', databaseId: id });
 
     // Export updated connections for Cube.js
@@ -347,6 +347,7 @@ export class DatabaseManager {
    * Export active database connections to JSON for Cube.js driverFactory
    * This file is read by Cube.js to route queries to the correct database
    * Exports ALL connection fields to support all database types
+   * Note: exports ALL active databases across all tenants (Cube.js serves all)
    */
   async exportConnectionsForCube(): Promise<void> {
     const connections: Record<string, {
@@ -367,6 +368,7 @@ export class DatabaseManager {
       options?: Record<string, unknown>;
     }> = {};
 
+    // No tenantId filter — export ALL active databases for Cube.js
     const databases = this.listActiveDatabases();
     for (const db of databases) {
       if (db.connection) {
@@ -409,7 +411,7 @@ export class DatabaseManager {
 
     const globalConfig = getConfig();
 
-    // Create default database from environment config
+    // Create default database from environment config (no tenant — global)
     await this.createDatabase({
       id: 'default',
       name: 'Default Database',

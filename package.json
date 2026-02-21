@@ -10,11 +10,13 @@
     "dev": "tsx src/index.ts",
     "lint": "eslint src/",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.37",
     "@ai-sdk/mcp": "^1.0.19",
+    "@clerk/express": "^1.7.73",
     "@modelcontextprotocol/sdk": "^1.26.0",
     "ai": "^6.0.73",
     "better-sqlite3": "^12.6.2",

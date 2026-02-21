@@ -10,14 +10,36 @@ import {
 } from '../services/cube-generator.js';
 import { enhanceCubeWithLLM } from '../services/llm-cube-enhancer.js';
 import { getCubeApiConfig } from '../services/catalog-service.js';
+import { getDatabaseManager } from '../../registry/manager.js';
 
 const router = Router();
+
+/**
+ * Verify the caller owns the requested database.
+ */
+function verifyDatabaseAccess(req: Request, res: Response): string | null {
+  const databaseId = (req.query.database as string) || 'default';
+  const tenantId = req.tenant?.tenantId;
+
+  if (tenantId !== undefined) {
+    const manager = getDatabaseManager();
+    const db = manager.getDatabase(databaseId, tenantId);
+    if (!db) {
+      res.status(404).json({ error: `Database '${databaseId}' not found` });
+      return null;
+    }
+  }
+
+  return databaseId;
+}
 
 // GET /api/cubes - List cubes from Cube /meta
 // Query param: ?database=<id> (default: "default")
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const databaseId = (req.query.database as string) || 'default';
+    const databaseId = verifyDatabaseAccess(req, res);
+    if (!databaseId) return;
+
     const cubeConfig = await getCubeApiConfig(databaseId);
     const meta = await getCubeApiMeta(cubeConfig.cubeApiUrl, cubeConfig.jwtSecret, databaseId);
     res.json(meta);
@@ -49,7 +71,9 @@ router.post('/generate', async (req: Request, res: Response) => {
 // Query param: ?database=<id> (default: "default")
 router.get('/files', async (req: Request, res: Response) => {
   try {
-    const databaseId = (req.query.database as string) || 'default';
+    const databaseId = verifyDatabaseAccess(req, res);
+    if (!databaseId) return;
+
     const files = await listCubeFiles(databaseId);
     res.json({ files });
   } catch (error) {
@@ -62,8 +86,10 @@ router.get('/files', async (req: Request, res: Response) => {
 // Query param: ?database=<id> (default: "default")
 router.get('/files/:name', async (req: Request, res: Response) => {
   try {
+    const databaseId = verifyDatabaseAccess(req, res);
+    if (!databaseId) return;
+
     const { name } = req.params;
-    const databaseId = (req.query.database as string) || 'default';
     const file = await readCubeFile(name, databaseId);
     res.json(file);
   } catch (error) {
@@ -77,8 +103,10 @@ router.get('/files/:name', async (req: Request, res: Response) => {
 // Query param: ?database=<id> (default: "default")
 router.put('/files/:name', async (req: Request, res: Response) => {
   try {
+    const databaseId = verifyDatabaseAccess(req, res);
+    if (!databaseId) return;
+
     const { name } = req.params;
-    const databaseId = (req.query.database as string) || 'default';
     const { content } = req.body as { content: string };
 
     if (!content) {
@@ -124,7 +152,9 @@ router.post('/generate-enhanced', async (req: Request, res: Response) => {
 // Query param: ?database=<id> (default: "default")
 router.post('/files', async (req: Request, res: Response) => {
   try {
-    const databaseId = (req.query.database as string) || 'default';
+    const databaseId = verifyDatabaseAccess(req, res);
+    if (!databaseId) return;
+
     const { fileName, config } = req.body as { fileName: string; config: CubeConfig };
 
     if (!fileName || !config) {

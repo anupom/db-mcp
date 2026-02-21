@@ -93,11 +93,13 @@ export class DatabaseStore {
         default_segments TEXT DEFAULT '[]',
         return_sql INTEGER DEFAULT 0,
         last_error TEXT,
+        tenant_id TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
 
       CREATE INDEX IF NOT EXISTS idx_databases_status ON databases(status);
+      CREATE INDEX IF NOT EXISTS idx_databases_tenant ON databases(tenant_id);
     `);
   }
 
@@ -173,15 +175,27 @@ export class DatabaseStore {
       defaultSegments: JSON.parse(row.default_segments as string || '[]'),
       returnSql: Boolean(row.return_sql),
       lastError: row.last_error || undefined,
+      tenantId: (row.tenant_id as string) || undefined,
       createdAt: row.created_at as string,
       updatedAt: row.updated_at as string,
     });
   }
 
   /**
+   * Build a tenant WHERE clause fragment.
+   * When tenantId is undefined (self-hosted), returns empty string — no filtering.
+   */
+  private tenantClause(tenantId?: string): { sql: string; params: unknown[] } {
+    if (tenantId === undefined) {
+      return { sql: '', params: [] };
+    }
+    return { sql: ' AND tenant_id = ?', params: [tenantId] };
+  }
+
+  /**
    * Create a new database configuration
    */
-  create(config: CreateDatabaseConfig): DatabaseConfig {
+  create(config: CreateDatabaseConfig, tenantId?: string): DatabaseConfig {
     const now = new Date().toISOString();
 
     const stmt = this.db.prepare(`
@@ -189,12 +203,12 @@ export class DatabaseStore {
         id, name, description, status, connection_json,
         cube_api_url, jwt_secret, catalog_path, cube_model_path,
         max_limit, deny_members, default_segments, return_sql,
-        created_at, updated_at
+        tenant_id, created_at, updated_at
       ) VALUES (
         @id, @name, @description, 'inactive', @connection_json,
         @cube_api_url, @jwt_secret, @catalog_path, @cube_model_path,
         @max_limit, @deny_members, @default_segments, @return_sql,
-        @created_at, @updated_at
+        @tenant_id, @created_at, @updated_at
       )
     `);
 
@@ -211,20 +225,22 @@ export class DatabaseStore {
       deny_members: JSON.stringify(config.denyMembers ?? []),
       default_segments: JSON.stringify(config.defaultSegments ?? []),
       return_sql: config.returnSql ? 1 : 0,
+      tenant_id: tenantId ?? null,
       created_at: now,
       updated_at: now,
     });
 
-    logger.info({ id: config.id }, 'Database configuration created');
-    return this.get(config.id)!;
+    logger.info({ id: config.id, tenantId }, 'Database configuration created');
+    return this.get(config.id, tenantId)!;
   }
 
   /**
    * Get a database configuration by ID
    */
-  get(id: string): DatabaseConfig | null {
-    const stmt = this.db.prepare('SELECT * FROM databases WHERE id = ?');
-    const row = stmt.get(id) as Record<string, unknown> | undefined;
+  get(id: string, tenantId?: string): DatabaseConfig | null {
+    const tc = this.tenantClause(tenantId);
+    const stmt = this.db.prepare(`SELECT * FROM databases WHERE id = ?${tc.sql}`);
+    const row = stmt.get(id, ...tc.params) as Record<string, unknown> | undefined;
 
     if (!row) return null;
     return this.rowToConfig(row);
@@ -233,13 +249,16 @@ export class DatabaseStore {
   /**
    * List all database configurations
    */
-  list(): DatabaseSummary[] {
+  list(tenantId?: string): DatabaseSummary[] {
+    const tc = this.tenantClause(tenantId);
+    const whereClause = tenantId !== undefined ? `WHERE tenant_id = ?` : '';
     const stmt = this.db.prepare(`
-      SELECT id, name, description, status, connection_json, created_at, updated_at
+      SELECT id, name, description, status, connection_json, tenant_id, created_at, updated_at
       FROM databases
+      ${whereClause}
       ORDER BY name
     `);
-    const rows = stmt.all() as Record<string, unknown>[];
+    const rows = (tenantId !== undefined ? stmt.all(tenantId) : stmt.all()) as Record<string, unknown>[];
 
     return rows.map(row => {
       const connection = this.decryptConnection(row.connection_json as string);
@@ -249,6 +268,7 @@ export class DatabaseStore {
         description: row.description as string | undefined,
         status: row.status as DatabaseConfig['status'],
         connectionType: connection.type,
+        tenantId: (row.tenant_id as string) || undefined,
         createdAt: row.created_at as string,
         updatedAt: row.updated_at as string,
       };
@@ -258,17 +278,18 @@ export class DatabaseStore {
   /**
    * List active database configurations
    */
-  listActive(): DatabaseConfig[] {
-    const stmt = this.db.prepare("SELECT * FROM databases WHERE status = 'active'");
-    const rows = stmt.all() as Record<string, unknown>[];
+  listActive(tenantId?: string): DatabaseConfig[] {
+    const tc = this.tenantClause(tenantId);
+    const stmt = this.db.prepare(`SELECT * FROM databases WHERE status = 'active'${tc.sql}`);
+    const rows = stmt.all(...tc.params) as Record<string, unknown>[];
     return rows.map(row => this.rowToConfig(row));
   }
 
   /**
    * Update a database configuration
    */
-  update(config: UpdateDatabaseConfig): DatabaseConfig | null {
-    const existing = this.get(config.id);
+  update(config: UpdateDatabaseConfig, tenantId?: string): DatabaseConfig | null {
+    const existing = this.get(config.id, tenantId);
     if (!existing) return null;
 
     const now = new Date().toISOString();
@@ -328,23 +349,33 @@ export class DatabaseStore {
       params.last_error = config.lastError;
     }
 
-    const sql = `UPDATE databases SET ${updates.join(', ')} WHERE id = @id`;
+    // Tenant-scoped update: only update if tenant matches
+    const tc = this.tenantClause(tenantId);
+    const sql = `UPDATE databases SET ${updates.join(', ')} WHERE id = @id${tc.sql}`;
     const stmt = this.db.prepare(sql);
-    stmt.run(params);
+    // For positional tenant params, we need to use named params approach differently
+    if (tenantId !== undefined) {
+      params.tenant_id_filter = tenantId;
+      const sqlWithNamed = `UPDATE databases SET ${updates.join(', ')} WHERE id = @id AND tenant_id = @tenant_id_filter`;
+      this.db.prepare(sqlWithNamed).run(params);
+    } else {
+      stmt.run(params);
+    }
 
-    logger.info({ id: config.id }, 'Database configuration updated');
-    return this.get(config.id);
+    logger.info({ id: config.id, tenantId }, 'Database configuration updated');
+    return this.get(config.id, tenantId);
   }
 
   /**
    * Delete a database configuration
    */
-  delete(id: string): boolean {
-    const stmt = this.db.prepare('DELETE FROM databases WHERE id = ?');
-    const result = stmt.run(id);
+  delete(id: string, tenantId?: string): boolean {
+    const tc = this.tenantClause(tenantId);
+    const stmt = this.db.prepare(`DELETE FROM databases WHERE id = ?${tc.sql}`);
+    const result = stmt.run(id, ...tc.params);
 
     if (result.changes > 0) {
-      logger.info({ id }, 'Database configuration deleted');
+      logger.info({ id, tenantId }, 'Database configuration deleted');
       return true;
     }
     return false;
@@ -353,13 +384,35 @@ export class DatabaseStore {
   /**
    * Update status of a database
    */
-  updateStatus(id: string, status: DatabaseConfig['status'], error?: string): boolean {
+  updateStatus(id: string, status: DatabaseConfig['status'], error?: string, tenantId?: string): boolean {
     const now = new Date().toISOString();
+    const tc = this.tenantClause(tenantId);
     const stmt = this.db.prepare(`
       UPDATE databases
       SET status = @status, last_error = @last_error, updated_at = @updated_at
-      WHERE id = @id
+      WHERE id = @id${tc.sql}
     `);
+
+    // Use named params + positional for tenant
+    if (tenantId !== undefined) {
+      const stmtWithTenant = this.db.prepare(`
+        UPDATE databases
+        SET status = @status, last_error = @last_error, updated_at = @updated_at
+        WHERE id = @id AND tenant_id = @tenant_id
+      `);
+      const result = stmtWithTenant.run({
+        id,
+        status,
+        last_error: error ?? null,
+        updated_at: now,
+        tenant_id: tenantId,
+      });
+      if (result.changes > 0) {
+        logger.info({ id, status, tenantId }, 'Database status updated');
+        return true;
+      }
+      return false;
+    }
 
     const result = stmt.run({
       id,
@@ -378,9 +431,10 @@ export class DatabaseStore {
   /**
    * Check if a database ID exists
    */
-  exists(id: string): boolean {
-    const stmt = this.db.prepare('SELECT 1 FROM databases WHERE id = ?');
-    return stmt.get(id) !== undefined;
+  exists(id: string, tenantId?: string): boolean {
+    const tc = this.tenantClause(tenantId);
+    const stmt = this.db.prepare(`SELECT 1 FROM databases WHERE id = ?${tc.sql}`);
+    return stmt.get(id, ...tc.params) !== undefined;
   }
 
   /**

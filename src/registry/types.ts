@@ -62,6 +62,9 @@ export const DatabaseConfigSchema = z.object({
 
   // Error info when status is 'error'
   lastError: z.string().optional(),
+
+  // Tenant ID for multi-tenant SaaS mode (undefined in self-hosted)
+  tenantId: z.string().optional(),
 });
 
 export type DatabaseConfig = z.infer<typeof DatabaseConfigSchema>;
@@ -97,6 +100,7 @@ export interface DatabaseSummary {
   description?: string;
   status: DatabaseStatus;
   connectionType: DatabaseType;
+  tenantId?: string;
   createdAt?: string;
   updatedAt?: string;
 }

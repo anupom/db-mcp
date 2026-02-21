@@ -44,6 +44,10 @@ const configSchema = z.object({
 
   // Anthropic API key for LLM features (chat, cube enhancement)
   ANTHROPIC_API_KEY: z.string().optional(),
+
+  // Clerk authentication (SaaS mode — when both are set, auth is enabled)
+  CLERK_SECRET_KEY: z.string().optional(),
+  CLERK_PUBLISHABLE_KEY: z.string().optional(),
 });
 
 export type Config = z.infer<typeof configSchema>;

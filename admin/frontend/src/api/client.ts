@@ -1,13 +1,36 @@
 const API_BASE = '/api';
 
+// Module-level token getter for auth integration
+let getTokenFn: (() => Promise<string | null>) | null = null;
+
+export function setTokenGetter(fn: () => Promise<string | null>) {
+  getTokenFn = fn;
+}
+
 async function fetchApi<T>(endpoint: string, options?: RequestInit): Promise<T> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(options?.headers as Record<string, string> || {}),
+  };
+
+  // Inject auth token if available
+  if (getTokenFn) {
+    const token = await getTokenFn();
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+  }
+
   const response = await fetch(`${API_BASE}${endpoint}`, {
     ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options?.headers,
-    },
+    headers,
   });
+
+  if (response.status === 401) {
+    // If auth is enabled and we get 401, the session may have expired
+    // The ClerkProvider will handle redirect to login
+    throw new Error('Authentication required');
+  }
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: 'Unknown error' }));
@@ -355,5 +378,33 @@ export const databasesApi = {
   initializeDefault: () =>
     fetchApi<{ success: boolean }>('/databases/initialize-default', {
       method: 'POST',
+    }),
+};
+
+// API Keys API
+export interface ApiKeyInfo {
+  id: string;
+  tenantId: string;
+  name: string;
+  keyPrefix: string;
+  createdBy: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+  expiresAt: string | null;
+  revokedAt: string | null;
+}
+
+export const apiKeysApi = {
+  list: () => fetchApi<{ keys: ApiKeyInfo[] }>('/api-keys'),
+
+  create: (name: string) =>
+    fetchApi<{ key: ApiKeyInfo; rawKey: string }>('/api-keys', {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    }),
+
+  revoke: (id: string) =>
+    fetchApi<{ success: boolean }>(`/api-keys/${id}`, {
+      method: 'DELETE',
     }),
 };

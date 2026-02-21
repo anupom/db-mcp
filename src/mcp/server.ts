@@ -8,6 +8,8 @@ import { getConfig } from '../config.js';
 import { getDatabaseManager } from '../registry/manager.js';
 import { DatabaseMcpHandler } from './handler.js';
 import adminRoutes, { healthCheck } from '../admin/index.js';
+import { clerkSessionMiddleware } from '../auth/middleware.js';
+import { validateMcpApiKey } from '../auth/api-key-middleware.js';
 
 export class McpServer {
   private servers: Server[] = [];
@@ -138,6 +140,7 @@ export class McpServer {
     // Middleware
     app.use(cors());
     app.use(express.json());
+    app.use(clerkSessionMiddleware());
 
     // Request logging
     app.use((req, _res, next) => {
@@ -188,8 +191,8 @@ export class McpServer {
       res.redirect(307, newUrl);
     });
 
-    // Database-specific MCP endpoint
-    app.all('/mcp/:databaseId', async (req, res) => {
+    // Database-specific MCP endpoint (protected by API key when auth is enabled)
+    app.all('/mcp/:databaseId', validateMcpApiKey(), async (req, res) => {
       const { databaseId } = req.params;
 
       try {

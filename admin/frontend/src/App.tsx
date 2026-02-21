@@ -1,35 +1,41 @@
 import { Routes, Route, NavLink } from 'react-router-dom';
-import { Database, Shield, Play, Settings, MessageCircle, Plug, Server } from 'lucide-react';
+import { Database, Shield, Play, Settings, MessageCircle, Plug, Server, Key } from 'lucide-react';
 import { DatabaseProvider } from './context/DatabaseContext';
+import { useAuthConfig } from './context/AuthContext';
 import DatabasePage from './pages/DatabasePage';
 import DatabasesPage from './pages/DatabasesPage';
 import GovernancePage from './pages/GovernancePage';
 import PlaygroundPage from './pages/PlaygroundPage';
 import ChatPage from './pages/ChatPage';
 import MCPPage from './pages/MCPPage';
-
-const navItems = [
-  { to: '/', icon: Server, label: 'Databases' },
-  { to: '/tables', icon: Database, label: 'Tables' },
-  { to: '/governance', icon: Shield, label: 'Governance' },
-  { to: '/playground', icon: Play, label: 'Playground' },
-  { to: '/chat', icon: MessageCircle, label: 'AI Chat' },
-  { to: '/mcp', icon: Plug, label: 'MCP' },
-];
+import ApiKeysPage from './pages/ApiKeysPage';
+import { ClerkSidebar } from './components/auth/ClerkSidebar';
 
 function App() {
+  const { authEnabled } = useAuthConfig();
+
+  const navItems = [
+    { to: '/', icon: Server, label: 'Databases' },
+    { to: '/tables', icon: Database, label: 'Tables' },
+    { to: '/governance', icon: Shield, label: 'Governance' },
+    { to: '/playground', icon: Play, label: 'Playground' },
+    { to: '/chat', icon: MessageCircle, label: 'AI Chat' },
+    { to: '/mcp', icon: Plug, label: 'MCP' },
+    ...(authEnabled ? [{ to: '/api-keys', icon: Key, label: 'API Keys' }] : []),
+  ];
+
   return (
     <DatabaseProvider>
       <div className="min-h-screen flex">
         {/* Sidebar */}
-        <aside className="w-64 bg-gray-900 text-white">
+        <aside className="w-64 bg-gray-900 text-white flex flex-col">
           <div className="p-4 border-b border-gray-700">
             <h1 className="text-xl font-bold flex items-center gap-2">
               <Settings className="w-6 h-6" />
               DB-MCP Admin
             </h1>
           </div>
-          <nav className="p-4">
+          <nav className="p-4 flex-1">
             <ul className="space-y-2">
               {navItems.map((item) => (
                 <li key={item.to}>
@@ -51,6 +57,7 @@ function App() {
               ))}
             </ul>
           </nav>
+          {authEnabled && <ClerkSidebar />}
         </aside>
 
         {/* Main Content */}
@@ -62,6 +69,7 @@ function App() {
             <Route path="/playground" element={<PlaygroundPage />} />
             <Route path="/chat" element={<ChatPage />} />
             <Route path="/mcp" element={<MCPPage />} />
+            {authEnabled && <Route path="/api-keys" element={<ApiKeysPage />} />}
           </Routes>
         </main>
       </div>

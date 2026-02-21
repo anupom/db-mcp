@@ -1,13 +1,36 @@
 import { Router, Request, Response } from 'express';
 import { getTables, getTableDetails, getSampleData } from '../services/postgres.js';
+import { getDatabaseManager } from '../../registry/manager.js';
 
 const router = Router();
+
+/**
+ * Verify the caller owns the requested database.
+ * Returns the databaseId if valid, or sends an error response and returns null.
+ */
+function verifyDatabaseAccess(req: Request, res: Response): string | null {
+  const databaseId = (req.query.database as string) || 'default';
+  const tenantId = req.tenant?.tenantId;
+
+  if (tenantId !== undefined) {
+    const manager = getDatabaseManager();
+    const db = manager.getDatabase(databaseId, tenantId);
+    if (!db) {
+      res.status(404).json({ error: `Database '${databaseId}' not found` });
+      return null;
+    }
+  }
+
+  return databaseId;
+}
 
 // GET /api/database/tables - List all tables with columns
 // Query param: ?database=<id> (default: "default")
 router.get('/tables', async (req: Request, res: Response) => {
   try {
-    const databaseId = (req.query.database as string) || 'default';
+    const databaseId = verifyDatabaseAccess(req, res);
+    if (!databaseId) return;
+
     const tables = await getTables(databaseId);
     res.json({ tables });
   } catch (error) {
@@ -21,8 +44,10 @@ router.get('/tables', async (req: Request, res: Response) => {
 // Query param: ?database=<id> (default: "default")
 router.get('/tables/:name', async (req: Request, res: Response) => {
   try {
+    const databaseId = verifyDatabaseAccess(req, res);
+    if (!databaseId) return;
+
     const { name } = req.params;
-    const databaseId = (req.query.database as string) || 'default';
     const details = await getTableDetails(name, databaseId);
     res.json(details);
   } catch (error) {
@@ -36,8 +61,10 @@ router.get('/tables/:name', async (req: Request, res: Response) => {
 // Query param: ?database=<id> (default: "default")
 router.get('/tables/:name/sample', async (req: Request, res: Response) => {
   try {
+    const databaseId = verifyDatabaseAccess(req, res);
+    if (!databaseId) return;
+
     const { name } = req.params;
-    const databaseId = (req.query.database as string) || 'default';
     const limit = parseInt(req.query.limit as string) || 10;
     const data = await getSampleData(name, Math.min(limit, 100), databaseId);
     res.json({ data, count: data.length });

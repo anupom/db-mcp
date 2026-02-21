@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { readCatalog, getCubeApiConfig } from '../services/catalog-service.js';
+import { getDatabaseManager } from '../../registry/manager.js';
 
 const router = Router();
 
@@ -33,10 +34,31 @@ async function generateToken(jwtSecret: string, databaseId?: string): Promise<st
   }
 }
 
+/**
+ * Verify the caller owns the requested database.
+ */
+function verifyDatabaseAccess(req: Request, res: Response): string | null {
+  const databaseId = (req.query.database as string) || 'default';
+  const tenantId = req.tenant?.tenantId;
+
+  if (tenantId !== undefined) {
+    const manager = getDatabaseManager();
+    const db = manager.getDatabase(databaseId, tenantId);
+    if (!db) {
+      res.status(404).json({ error: `Database '${databaseId}' not found` });
+      return null;
+    }
+  }
+
+  return databaseId;
+}
+
 // POST /api/query/validate - Validate query against rules
 router.post('/validate', async (req: Request, res: Response) => {
   try {
-    const databaseId = (req.query.database as string) || 'default';
+    const databaseId = verifyDatabaseAccess(req, res);
+    if (!databaseId) return;
+
     const query = req.body as CubeQuery;
     const catalog = await readCatalog(databaseId);
     const errors: string[] = [];
@@ -124,7 +146,9 @@ router.post('/validate', async (req: Request, res: Response) => {
 // POST /api/query/execute - Execute query, return results
 router.post('/execute', async (req: Request, res: Response) => {
   try {
-    const databaseId = (req.query.database as string) || 'default';
+    const databaseId = verifyDatabaseAccess(req, res);
+    if (!databaseId) return;
+
     const query = req.body as CubeQuery;
 
     // Ensure limit is set
@@ -159,7 +183,9 @@ router.post('/execute', async (req: Request, res: Response) => {
 // POST /api/query/sql - Get generated SQL
 router.post('/sql', async (req: Request, res: Response) => {
   try {
-    const databaseId = (req.query.database as string) || 'default';
+    const databaseId = verifyDatabaseAccess(req, res);
+    if (!databaseId) return;
+
     const query = req.body as CubeQuery;
 
     // Ensure limit is set
@@ -194,7 +220,9 @@ router.post('/sql', async (req: Request, res: Response) => {
 // GET /api/query/debug - Debug endpoint to verify database routing
 router.get('/debug', async (req: Request, res: Response) => {
   try {
-    const databaseId = (req.query.database as string) || 'default';
+    const databaseId = verifyDatabaseAccess(req, res);
+    if (!databaseId) return;
+
     const cubeConfig = await getCubeApiConfig(databaseId);
     const token = await generateToken(cubeConfig.jwtSecret, databaseId);
 

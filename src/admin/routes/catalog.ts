@@ -9,14 +9,36 @@ import {
   type CatalogOverride,
 } from '../services/catalog-service.js';
 import { getCubeApiMeta } from '../services/cube-generator.js';
+import { getDatabaseManager } from '../../registry/manager.js';
 
 const router = Router();
+
+/**
+ * Verify the caller owns the requested database.
+ */
+function verifyDatabaseAccess(req: Request, res: Response): string | null {
+  const databaseId = (req.query.database as string) || 'default';
+  const tenantId = req.tenant?.tenantId;
+
+  if (tenantId !== undefined) {
+    const manager = getDatabaseManager();
+    const db = manager.getDatabase(databaseId, tenantId);
+    if (!db) {
+      res.status(404).json({ error: `Database '${databaseId}' not found` });
+      return null;
+    }
+  }
+
+  return databaseId;
+}
 
 // GET /api/catalog/members - All members with governance status
 // Query param: ?database=<id> (default: "default")
 router.get('/members', async (req: Request, res: Response) => {
   try {
-    const databaseId = (req.query.database as string) || 'default';
+    const databaseId = verifyDatabaseAccess(req, res);
+    if (!databaseId) return;
+
     const cubeConfig = await getCubeApiConfig(databaseId);
     const [catalog, cubeMeta] = await Promise.all([
       readCatalog(databaseId),
@@ -44,7 +66,9 @@ router.get('/members', async (req: Request, res: Response) => {
 // Query param: ?database=<id> (default: "default")
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const databaseId = (req.query.database as string) || 'default';
+    const databaseId = verifyDatabaseAccess(req, res);
+    if (!databaseId) return;
+
     const catalog = await readCatalog(databaseId);
     res.json(catalog);
   } catch (error) {
@@ -57,8 +81,10 @@ router.get('/', async (req: Request, res: Response) => {
 // Query param: ?database=<id> (default: "default")
 router.put('/members/:name', async (req: Request, res: Response) => {
   try {
+    const databaseId = verifyDatabaseAccess(req, res);
+    if (!databaseId) return;
+
     const memberName = req.params.name;
-    const databaseId = (req.query.database as string) || 'default';
     const override = req.body as CatalogOverride;
 
     const catalog = await updateMember(memberName, override, databaseId);
@@ -74,8 +100,10 @@ router.put('/members/:name', async (req: Request, res: Response) => {
 // Query param: ?database=<id> (default: "default")
 router.delete('/members/:name', async (req: Request, res: Response) => {
   try {
+    const databaseId = verifyDatabaseAccess(req, res);
+    if (!databaseId) return;
+
     const memberName = req.params.name;
-    const databaseId = (req.query.database as string) || 'default';
     const catalog = await removeMemberOverride(memberName, databaseId);
     res.json({ success: true, catalog });
   } catch (error) {
@@ -89,7 +117,9 @@ router.delete('/members/:name', async (req: Request, res: Response) => {
 // Query param: ?database=<id> (default: "default")
 router.put('/defaults', async (req: Request, res: Response) => {
   try {
-    const databaseId = (req.query.database as string) || 'default';
+    const databaseId = verifyDatabaseAccess(req, res);
+    if (!databaseId) return;
+
     const defaults = req.body as { exposed?: boolean; pii?: boolean };
     const catalog = await updateDefaults(defaults, databaseId);
     res.json({ success: true, catalog });
