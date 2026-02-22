@@ -25,7 +25,7 @@ export class McpServer {
   /**
    * Get or create a handler for a specific database
    */
-  async getHandler(databaseId: string): Promise<DatabaseMcpHandler> {
+  async getHandler(databaseId: string, tenantId?: string): Promise<DatabaseMcpHandler> {
     // Check cache first
     let handler = this.handlers.get(databaseId);
     if (handler) {
@@ -36,9 +36,9 @@ export class McpServer {
       return handler;
     }
 
-    // Get database config
+    // Get database config (tenant-scoped when tenantId is provided)
     const manager = getDatabaseManager();
-    const config = manager.getDatabase(databaseId);
+    const config = manager.getDatabase(databaseId, tenantId);
 
     if (!config) {
       throw new Error(`Database '${databaseId}' not found`);
@@ -193,9 +193,10 @@ export class McpServer {
     // Shared MCP request handler
     const handleMcpEndpoint = async (req: express.Request, res: express.Response) => {
       const { databaseId } = req.params;
+      const tenantId = req.tenant?.tenantId;
 
       try {
-        const handler = await this.getHandler(databaseId);
+        const handler = await this.getHandler(databaseId, tenantId);
 
         let dbTransportMap = dbTransports.get(databaseId);
         if (!dbTransportMap) {

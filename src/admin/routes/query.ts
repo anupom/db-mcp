@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import jwt from 'jsonwebtoken';
 import { readCatalog, getCubeApiConfig } from '../services/catalog-service.js';
 import { verifyDatabaseAccess } from '../middleware/database-access.js';
 
@@ -23,15 +24,9 @@ interface CubeQuery {
   offset?: number;
 }
 
-async function generateToken(jwtSecret: string, databaseId?: string): Promise<string> {
+function generateToken(jwtSecret: string, databaseId?: string): string {
   const payload = databaseId ? { databaseId } : {};
-  try {
-    const jwt = await import('jsonwebtoken');
-    return jwt.default.sign(payload, jwtSecret, { expiresIn: '1h' });
-  } catch {
-    // Fallback for when jsonwebtoken isn't available
-    return Buffer.from(JSON.stringify({ ...payload, exp: Math.floor(Date.now() / 1000) + 3600 })).toString('base64');
-  }
+  return jwt.sign(payload, jwtSecret, { expiresIn: '1h' });
 }
 
 // POST /api/query/validate - Validate query against rules
@@ -138,7 +133,7 @@ router.post('/execute', async (req: Request, res: Response) => {
     }
 
     const cubeConfig = await getCubeApiConfig(databaseId);
-    const token = await generateToken(cubeConfig.jwtSecret, databaseId);
+    const token = generateToken(cubeConfig.jwtSecret, databaseId);
     const params = new URLSearchParams({ query: JSON.stringify(query) });
 
     const response = await fetch(`${cubeConfig.cubeApiUrl}/load?${params.toString()}`, {
@@ -175,7 +170,7 @@ router.post('/sql', async (req: Request, res: Response) => {
     }
 
     const cubeConfig = await getCubeApiConfig(databaseId);
-    const token = await generateToken(cubeConfig.jwtSecret, databaseId);
+    const token = generateToken(cubeConfig.jwtSecret, databaseId);
     const params = new URLSearchParams({ query: JSON.stringify(query) });
 
     const response = await fetch(`${cubeConfig.cubeApiUrl}/sql?${params.toString()}`, {
@@ -205,7 +200,7 @@ router.get('/debug', async (req: Request, res: Response) => {
     if (!databaseId) return;
 
     const cubeConfig = await getCubeApiConfig(databaseId);
-    const token = await generateToken(cubeConfig.jwtSecret, databaseId);
+    const token = generateToken(cubeConfig.jwtSecret, databaseId);
 
     // Decode JWT to show payload (without verification, just for debug)
     let jwtPayload: Record<string, unknown> = {};

@@ -29,7 +29,9 @@ export function validateMcpApiKey(): RequestHandler {
     const internalSecret = req.headers['x-internal-secret'] as string;
     if (internalSecret && internalSecret.length === getInternalSecret().length &&
         crypto.timingSafeEqual(Buffer.from(internalSecret), Buffer.from(getInternalSecret()))) {
-      req.tenant = { tenantId: undefined };
+      // Forward the tenant context from the originating request if provided
+      const forwardedTenantId = req.headers['x-tenant-id'] as string | undefined;
+      req.tenant = { tenantId: forwardedTenantId };
       return next();
     }
 

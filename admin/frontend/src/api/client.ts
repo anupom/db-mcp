@@ -3,7 +3,7 @@ const API_BASE = '/api';
 // Module-level token getter for auth integration
 let getTokenFn: (() => Promise<string | null>) | null = null;
 
-export function setTokenGetter(fn: () => Promise<string | null>) {
+export function setTokenGetter(fn: (() => Promise<string | null>) | null) {
   getTokenFn = fn;
 }
 

@@ -4,6 +4,19 @@ import { getDatabaseManager } from '../../registry/manager.js';
 
 const router = Router();
 
+/** Redact password and jwtSecret before sending to client */
+function redactSensitiveFields(database: Record<string, unknown>) {
+  const conn = database.connection as Record<string, unknown> | undefined;
+  return {
+    ...database,
+    connection: conn ? {
+      ...conn,
+      password: conn.password ? '********' : undefined,
+    } : conn,
+    jwtSecret: database.jwtSecret ? '********' : undefined,
+  };
+}
+
 // Input validation schemas
 const CreateDatabaseSchema = z.object({
   id: z.string().regex(/^[a-z0-9-]+$/, 'ID must be URL-safe lowercase alphanumeric with hyphens'),
@@ -63,7 +76,7 @@ router.post('/', async (req: Request, res: Response) => {
       returnSql: input.returnSql ?? false,
     };
     const database = await manager.createDatabase(createInput, tenantId);
-    res.status(201).json({ database });
+    res.status(201).json({ database: redactSensitiveFields(database) });
   } catch (error) {
     console.error('Error creating database:', error);
     if (error instanceof z.ZodError) {
@@ -92,17 +105,7 @@ router.get('/:id', async (req: Request, res: Response) => {
       return;
     }
 
-    // Don't expose sensitive fields in the response
-    const safeDatabase = {
-      ...database,
-      connection: {
-        ...database.connection,
-        password: database.connection.password ? '********' : undefined,
-      },
-      jwtSecret: database.jwtSecret ? '********' : undefined,
-    };
-
-    res.json({ database: safeDatabase });
+    res.json({ database: redactSensitiveFields(database) });
   } catch (error) {
     console.error('Error getting database:', error);
     const message = error instanceof Error ? error.message : 'Failed to get database';
@@ -125,7 +128,7 @@ router.put('/:id', async (req: Request, res: Response) => {
       return;
     }
 
-    res.json({ database });
+    res.json({ database: redactSensitiveFields(database) });
   } catch (error) {
     console.error('Error updating database:', error);
     if (error instanceof z.ZodError) {
@@ -136,7 +139,9 @@ router.put('/:id', async (req: Request, res: Response) => {
       return;
     }
     const message = error instanceof Error ? error.message : 'Failed to update database';
-    res.status(400).json({ error: message });
+    // Return 404 for not-found errors, 400 for other client errors
+    const status = message.includes('not found') ? 404 : 400;
+    res.status(status).json({ error: message });
   }
 });
 

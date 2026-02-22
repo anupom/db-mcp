@@ -1,7 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { databasesApi, type DatabaseSummary } from '../api/client';
-import { useAuthConfig } from './AuthContext';
 import { useClerkOrgId } from '../hooks/useClerkOrgId';
 
 const STORAGE_KEY = 'db-mcp-selected-database';
@@ -20,8 +19,7 @@ const DatabaseContext = createContext<DatabaseContextType | null>(null);
 
 export function DatabaseProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
-  const { authEnabled } = useAuthConfig();
-  const orgId = useClerkOrgId(authEnabled);
+  const orgId = useClerkOrgId();
 
   const [databaseId, setDatabaseIdState] = useState<string | null>(() => {
     // Initialize from localStorage

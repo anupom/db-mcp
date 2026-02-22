@@ -11,6 +11,7 @@ export function AuthTokenInjector() {
 
   useEffect(() => {
     setTokenGetter(() => getToken());
+    return () => setTokenGetter(null);
   }, [getToken]);
 
   return null;

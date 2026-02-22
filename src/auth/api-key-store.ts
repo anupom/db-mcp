@@ -116,7 +116,10 @@ export class ApiKeyStore {
     ).get(keyHash) as Record<string, unknown> | undefined;
 
     if (!row) return null;
-    return this.rowToApiKey(row) as ApiKeyWithHash;
+    return {
+      ...this.rowToApiKey(row),
+      keyHash: row.key_hash as string,
+    };
   }
 
   /**
@@ -124,7 +127,7 @@ export class ApiKeyStore {
    */
   listByTenant(tenantId: string): ApiKey[] {
     const rows = this.db.prepare(
-      'SELECT * FROM api_keys WHERE tenant_id = ? ORDER BY created_at DESC'
+      'SELECT id, tenant_id, name, key_prefix, created_by, created_at, last_used_at, expires_at, revoked_at FROM api_keys WHERE tenant_id = ? ORDER BY created_at DESC'
     ).all(tenantId) as Record<string, unknown>[];
 
     return rows.map(row => this.rowToApiKey(row));

@@ -1,29 +1,29 @@
+import { createContext, useContext } from 'react';
 import { useOrganization } from '@clerk/clerk-react';
 
 /**
- * Returns the current Clerk org ID when auth is enabled.
- * When auth is disabled, returns undefined without calling any Clerk hooks.
- *
- * Note: Hooks can't be called conditionally in the same component,
- * so we use a separate component/hook pattern. When authEnabled is false,
- * we return undefined immediately. When true, we call the Clerk hook.
- * This is safe because authEnabled doesn't change during the component's lifecycle.
+ * Context to pass the Clerk org ID from the auth-enabled tree
+ * down to components that need it. When auth is disabled,
+ * this context provides undefined (the default).
  */
-export function useClerkOrgId(authEnabled: boolean): string | undefined {
-  if (!authEnabled) {
-    return undefined;
-  }
+const OrgIdContext = createContext<string | undefined>(undefined);
 
-  // When authEnabled=true but ClerkProvider is missing (e.g. clerkPublishableKey is null),
-  // useOrganization() throws synchronously. Catch it to avoid crashing the entire app.
-  try {
-    // eslint-disable-next-line react-hooks/rules-of-hooks
-    const { organization } = useOrganization();
-    return organization?.id;
-  } catch (e) {
-    if (e instanceof Error && e.message.includes('ClerkProvider')) {
-      return undefined;
-    }
-    throw e;
-  }
+export const OrgIdProvider = OrgIdContext.Provider;
+
+/**
+ * Hook to read the org ID from the auth-enabled tree.
+ * Always calls useOrganization() unconditionally (Rules of Hooks safe).
+ * Must be rendered inside ClerkProvider.
+ */
+export function useClerkOrgIdValue(): string | undefined {
+  const { organization } = useOrganization();
+  return organization?.id;
+}
+
+/**
+ * Returns the current org ID. Works in both auth-enabled and
+ * auth-disabled trees via context.
+ */
+export function useClerkOrgId(): string | undefined {
+  return useContext(OrgIdContext);
 }

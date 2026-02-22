@@ -35,6 +35,7 @@ router.post('/', async (req: Request, res: Response) => {
         url: `http://localhost:${config.MCP_HTTP_PORT}/mcp/${databaseId}`,
         headers: {
           'X-Internal-Secret': getInternalSecret(),
+          ...(req.tenant?.tenantId ? { 'X-Tenant-Id': req.tenant.tenantId } : {}),
         },
       },
     });
