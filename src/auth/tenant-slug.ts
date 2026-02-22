@@ -31,10 +31,10 @@ export function generateSlug(orgId: string): string {
 /**
  * Generate a unique slug by appending numeric suffixes on collision.
  */
-export async function generateUniqueSlug(
+export function generateUniqueSlug(
   orgId: string,
   slugExists: (slug: string) => boolean
-): Promise<string> {
+): string {
   const base = generateSlug(orgId);
 
   if (!slugExists(base)) {

@@ -216,9 +216,9 @@ describe('scopeDatabaseId', () => {
     expect(scopeDatabaseId('analytics')).toBe('analytics');
   });
 
-  it('appends 8-char hash when tenantId is provided', () => {
+  it('appends 12-char hash when tenantId is provided', () => {
     const result = scopeDatabaseId('analytics', 'tenant-a');
-    expect(result).toMatch(/^analytics-[a-f0-9]{8}$/);
+    expect(result).toMatch(/^analytics-[a-f0-9]{12}$/);
   });
 
   it('produces different IDs for different tenants', () => {

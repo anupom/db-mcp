@@ -27,7 +27,8 @@ export function validateMcpApiKey(): RequestHandler {
 
     // Allow internal server-to-server requests (e.g., chat → MCP)
     const internalSecret = req.headers['x-internal-secret'] as string;
-    if (internalSecret && internalSecret === getInternalSecret()) {
+    if (internalSecret && internalSecret.length === getInternalSecret().length &&
+        crypto.timingSafeEqual(Buffer.from(internalSecret), Buffer.from(getInternalSecret()))) {
       req.tenant = { tenantId: undefined };
       return next();
     }

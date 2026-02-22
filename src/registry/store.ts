@@ -15,10 +15,16 @@ const logger = getLogger().child({ component: 'DatabaseStore' });
 class Encryptor {
   private algorithm = 'aes-256-gcm' as const;
   private key: Buffer;
+  private legacyKey: Buffer | null;
 
-  constructor(secret: string) {
-    // Derive a 32-byte key from the secret
-    this.key = crypto.scryptSync(secret, 'db-mcp-salt', 32);
+  constructor(secret: string, salt: string) {
+    this.key = crypto.scryptSync(secret, salt, 32);
+    // Keep legacy key for backward-compatible decryption of data
+    // encrypted before per-installation salts were introduced
+    const legacySalt = 'db-mcp-salt';
+    this.legacyKey = salt !== legacySalt
+      ? crypto.scryptSync(secret, legacySalt, 32)
+      : null;
   }
 
   encrypt(text: string): string {
@@ -32,13 +38,24 @@ class Encryptor {
   }
 
   decrypt(encryptedData: string): string {
+    try {
+      return this.decryptWithKey(encryptedData, this.key);
+    } catch {
+      if (this.legacyKey) {
+        return this.decryptWithKey(encryptedData, this.legacyKey);
+      }
+      throw new Error('Failed to decrypt data');
+    }
+  }
+
+  private decryptWithKey(encryptedData: string, key: Buffer): string {
     const [ivHex, authTagHex, encrypted] = encryptedData.split(':');
     if (!ivHex || !authTagHex || !encrypted) {
       throw new Error('Invalid encrypted data format');
     }
     const iv = Buffer.from(ivHex, 'hex');
     const authTag = Buffer.from(authTagHex, 'hex');
-    const decipher = crypto.createDecipheriv(this.algorithm, this.key, iv) as crypto.DecipherGCM;
+    const decipher = crypto.createDecipheriv(this.algorithm, key, iv) as crypto.DecipherGCM;
     decipher.setAuthTag(authTag);
     let decrypted = decipher.update(encrypted, 'hex', 'utf8');
     decrypted += decipher.final('utf8');
@@ -67,12 +84,13 @@ export class DatabaseStore {
     this.db = new Database(actualPath);
     this.db.pragma('journal_mode = WAL');
 
-    // Initialize encryption if ADMIN_SECRET is set
-    if (config.ADMIN_SECRET) {
-      this.encryptor = new Encryptor(config.ADMIN_SECRET);
-    }
-
     this.initialize();
+
+    // Initialize encryption if ADMIN_SECRET is set (after tables exist)
+    if (config.ADMIN_SECRET) {
+      const salt = this.getOrCreateSalt();
+      this.encryptor = new Encryptor(config.ADMIN_SECRET, salt);
+    }
     logger.info({ path: actualPath }, 'Database store initialized');
   }
 
@@ -158,6 +176,27 @@ export class DatabaseStore {
       this.db.exec(`UPDATE databases SET slug = id WHERE slug IS NULL`);
       logger.info('Migrated databases table: added slug column');
     }
+
+    // Settings table for per-installation values (e.g., encryption salt)
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+    `);
+  }
+
+  /**
+   * Get or create a per-installation encryption salt.
+   */
+  private getOrCreateSalt(): string {
+    const row = this.db.prepare("SELECT value FROM settings WHERE key = 'encryption_salt'").get() as { value: string } | undefined;
+    if (row) return row.value;
+
+    const salt = crypto.randomBytes(16).toString('hex');
+    this.db.prepare("INSERT INTO settings (key, value) VALUES ('encryption_salt', ?)").run(salt);
+    logger.info('Generated per-installation encryption salt');
+    return salt;
   }
 
   /**

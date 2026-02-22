@@ -38,16 +38,28 @@ export function clerkSessionMiddleware(): RequestHandler {
 
   // Eager load Clerk and cache the middleware instance
   let middleware: RequestHandler | null = null;
-  const initPromise = loadClerk().then(clerk => {
-    middleware = clerk.clerkMiddleware();
-  });
+  let initPromise: Promise<void> | null = null;
+
+  function ensureInit(): Promise<void> {
+    if (!initPromise) {
+      initPromise = loadClerk().then(clerk => {
+        middleware = clerk.clerkMiddleware();
+      }).catch(err => {
+        initPromise = null; // Allow retry on next request
+        throw err;
+      });
+    }
+    return initPromise;
+  }
+
+  ensureInit(); // Start eagerly
 
   return (req: Request, res: Response, next: NextFunction) => {
     if (middleware) {
       return middleware(req, res, next);
     }
     // Wait for initialization if not ready yet
-    initPromise.then(() => {
+    ensureInit().then(() => {
       middleware!(req, res, next);
     }).catch(next);
   };
@@ -135,7 +147,7 @@ export function ensureTenant(): RequestHandler {
       let tenant = store.getById(req.tenant.tenantId);
 
       if (!tenant) {
-        const slug = await generateUniqueSlug(
+        const slug = generateUniqueSlug(
           req.tenant.tenantId,
           (s) => store.slugExists(s)
         );

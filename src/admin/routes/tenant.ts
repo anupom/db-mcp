@@ -61,17 +61,26 @@ router.put('/slug', requireOrgAdmin(), (req: Request, res: Response) => {
     return;
   }
 
-  const tenant = store.updateSlug(tenantId, slug);
-  if (!tenant) {
-    res.status(404).json({ error: 'Tenant not found' });
-    return;
-  }
+  try {
+    const tenant = store.updateSlug(tenantId, slug);
+    if (!tenant) {
+      res.status(404).json({ error: 'Tenant not found' });
+      return;
+    }
 
-  res.json({
-    tenantId: tenant.id,
-    slug: tenant.slug,
-    name: tenant.name,
-  });
+    res.json({
+      tenantId: tenant.id,
+      slug: tenant.slug,
+      name: tenant.name,
+    });
+  } catch (err) {
+    // UNIQUE constraint race: another request took this slug between our check and update
+    if (err instanceof Error && err.message.includes('UNIQUE constraint')) {
+      res.status(409).json({ error: 'Slug is already taken' });
+      return;
+    }
+    throw err;
+  }
 });
 
 export default router;

@@ -36,10 +36,6 @@ const UpdateDatabaseSchema = CreateDatabaseSchema.partial().omit({ id: true });
 router.get('/', async (req: Request, res: Response) => {
   try {
     const manager = getDatabaseManager();
-    if (!manager) {
-      res.status(503).json({ error: 'Registry not initialized' });
-      return;
-    }
 
     const tenantId = req.tenant?.tenantId;
     const databases = manager.listDatabases(tenantId);
@@ -55,10 +51,6 @@ router.get('/', async (req: Request, res: Response) => {
 router.post('/', async (req: Request, res: Response) => {
   try {
     const manager = getDatabaseManager();
-    if (!manager) {
-      res.status(503).json({ error: 'Registry not initialized' });
-      return;
-    }
 
     const tenantId = req.tenant?.tenantId;
     const input = CreateDatabaseSchema.parse(req.body);
@@ -90,10 +82,6 @@ router.post('/', async (req: Request, res: Response) => {
 router.get('/:id', async (req: Request, res: Response) => {
   try {
     const manager = getDatabaseManager();
-    if (!manager) {
-      res.status(503).json({ error: 'Registry not initialized' });
-      return;
-    }
 
     const { id } = req.params;
     const tenantId = req.tenant?.tenantId;
@@ -126,10 +114,6 @@ router.get('/:id', async (req: Request, res: Response) => {
 router.put('/:id', async (req: Request, res: Response) => {
   try {
     const manager = getDatabaseManager();
-    if (!manager) {
-      res.status(503).json({ error: 'Registry not initialized' });
-      return;
-    }
 
     const { id } = req.params;
     const tenantId = req.tenant?.tenantId;
@@ -160,10 +144,6 @@ router.put('/:id', async (req: Request, res: Response) => {
 router.delete('/:id', async (req: Request, res: Response) => {
   try {
     const manager = getDatabaseManager();
-    if (!manager) {
-      res.status(503).json({ error: 'Registry not initialized' });
-      return;
-    }
 
     const { id } = req.params;
     const tenantId = req.tenant?.tenantId;
@@ -186,10 +166,6 @@ router.delete('/:id', async (req: Request, res: Response) => {
 router.post('/:id/test', async (req: Request, res: Response) => {
   try {
     const manager = getDatabaseManager();
-    if (!manager) {
-      res.status(503).json({ error: 'Registry not initialized' });
-      return;
-    }
 
     const { id } = req.params;
     const tenantId = req.tenant?.tenantId;
@@ -214,10 +190,6 @@ router.post('/:id/test', async (req: Request, res: Response) => {
 router.post('/:id/activate', async (req: Request, res: Response) => {
   try {
     const manager = getDatabaseManager();
-    if (!manager) {
-      res.status(503).json({ error: 'Registry not initialized' });
-      return;
-    }
 
     const { id } = req.params;
     const tenantId = req.tenant?.tenantId;
@@ -237,10 +209,6 @@ router.post('/:id/activate', async (req: Request, res: Response) => {
 router.post('/:id/deactivate', async (req: Request, res: Response) => {
   try {
     const manager = getDatabaseManager();
-    if (!manager) {
-      res.status(503).json({ error: 'Registry not initialized' });
-      return;
-    }
 
     const { id } = req.params;
     const tenantId = req.tenant?.tenantId;
@@ -260,10 +228,6 @@ router.post('/:id/deactivate', async (req: Request, res: Response) => {
 router.post('/initialize-default', async (req: Request, res: Response) => {
   try {
     const manager = getDatabaseManager();
-    if (!manager) {
-      res.status(503).json({ error: 'Registry not initialized' });
-      return;
-    }
 
     const tenantId = req.tenant?.tenantId;
     const databaseId = await manager.initializeDefaultDatabase(tenantId);

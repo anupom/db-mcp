@@ -60,20 +60,20 @@ describe('generateSlug', () => {
 });
 
 describe('generateUniqueSlug', () => {
-  it('returns base slug when no collision', async () => {
-    const slug = await generateUniqueSlug('org_acme', () => false);
+  it('returns base slug when no collision', () => {
+    const slug = generateUniqueSlug('org_acme', () => false);
     expect(slug).toBe('org-acme');
   });
 
-  it('appends suffix on collision', async () => {
+  it('appends suffix on collision', () => {
     const taken = new Set(['org-acme']);
-    const slug = await generateUniqueSlug('org_acme', (s) => taken.has(s));
+    const slug = generateUniqueSlug('org_acme', (s) => taken.has(s));
     expect(slug).toBe('org-acme-2');
   });
 
-  it('increments suffix on multiple collisions', async () => {
+  it('increments suffix on multiple collisions', () => {
     const taken = new Set(['org-acme', 'org-acme-2', 'org-acme-3']);
-    const slug = await generateUniqueSlug('org_acme', (s) => taken.has(s));
+    const slug = generateUniqueSlug('org_acme', (s) => taken.has(s));
     expect(slug).toBe('org-acme-4');
   });
 });

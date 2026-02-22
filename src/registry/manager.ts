@@ -23,14 +23,14 @@ const logger = getLogger().child({ component: 'DatabaseManager' });
 type EventListener = (event: DatabaseRegistryEvent) => void;
 
 /**
- * Scope a database ID to a tenant by appending an 8-char hash of the tenantId.
+ * Scope a database ID to a tenant by appending a 12-char hash of the tenantId.
  * Self-hosted (no tenant) returns the slug unchanged.
- * SaaS tenants get '{slug}-{8-char sha256}' to avoid PK collisions in the
+ * SaaS tenants get '{slug}-{12-char sha256}' to avoid PK collisions in the
  * global ID namespace (Cube.js routes entirely on databaseId).
  */
 export function scopeDatabaseId(slug: string, tenantId?: string): string {
   if (!tenantId) return slug;
-  const hash = createHash('sha256').update(tenantId).digest('hex').slice(0, 8);
+  const hash = createHash('sha256').update(tenantId).digest('hex').slice(0, 12);
   return `${slug}-${hash}`;
 }
 
@@ -500,11 +500,8 @@ export class DatabaseManager {
       }
     }
 
-    // Activate by default
+    // Activate by default (also exports connections for Cube.js)
     await this.activateDatabase(dbId, tenantId);
-
-    // Export connections for Cube.js
-    await this.exportConnectionsForCube();
 
     return dbId;
   }

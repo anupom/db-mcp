@@ -105,10 +105,9 @@ export class McpServer {
         case 'deactivated':
         case 'deleted':
           // Remove cached handler when database is deactivated or deleted
-          const dbId = event.type === 'deleted' ? event.databaseId : event.databaseId;
-          if (this.handlers.has(dbId)) {
-            this.removeHandler(dbId);
-            this.logger.info({ databaseId: dbId, event: event.type }, 'Handler removed due to registry event');
+          if (this.handlers.has(event.databaseId)) {
+            this.removeHandler(event.databaseId);
+            this.logger.info({ databaseId: event.databaseId, event: event.type }, 'Handler removed due to registry event');
           }
           break;
         case 'updated':
@@ -160,7 +159,6 @@ export class McpServer {
         endpoints: {
           health: '/health',
           mcp: '/mcp/:databaseId',
-          databases: '/databases',
           api: '/api',
         },
       });
@@ -224,17 +222,6 @@ export class McpServer {
 
     // Database-specific MCP endpoint (self-hosted + internal server-to-server)
     app.all('/mcp/:databaseId', validateMcpApiKey(), handleMcpEndpoint);
-
-    // List active databases endpoint
-    app.get('/databases', (_req, res) => {
-      const manager = getDatabaseManager();
-      const databases = manager.listDatabases();
-      res.json({
-        databases: databases
-          .filter(d => d.status === 'active')
-          .map(d => ({ id: d.id })),
-      });
-    });
 
     // Error handling
     app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
