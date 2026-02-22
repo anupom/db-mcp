@@ -307,6 +307,7 @@ export interface DatabaseSummary {
   description?: string;
   status: DatabaseStatus;
   connectionType: DatabaseType;
+  slug?: string;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -376,8 +377,28 @@ export const databasesApi = {
     }),
 
   initializeDefault: () =>
-    fetchApi<{ success: boolean }>('/databases/initialize-default', {
+    fetchApi<{ success: boolean; databaseId: string }>('/databases/initialize-default', {
       method: 'POST',
+    }),
+
+  getCubeMeta: (id: string) =>
+    fetchApi<{ cubes: Array<{ name: string; title: string }> }>(`/cubes?database=${id}`),
+};
+
+// Tenant API
+export interface TenantInfo {
+  tenantId: string;
+  slug: string;
+  name: string | null;
+}
+
+export const tenantApi = {
+  getInfo: () => fetchApi<TenantInfo>('/tenant'),
+
+  updateSlug: (slug: string) =>
+    fetchApi<TenantInfo>('/tenant/slug', {
+      method: 'PUT',
+      body: JSON.stringify({ slug }),
     }),
 };
 

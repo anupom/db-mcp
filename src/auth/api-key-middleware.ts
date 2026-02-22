@@ -2,7 +2,9 @@ import { Request, Response, NextFunction, RequestHandler } from 'express';
 import * as crypto from 'crypto';
 import { isAuthEnabled } from './config.js';
 import { getApiKeyStore } from './api-key-store.js';
+import { getTenantStore } from './tenant-store.js';
 import { getDatabaseManager } from '../registry/manager.js';
+import { getInternalSecret } from './internal-secret.js';
 import type { TenantContext } from './types.js';
 
 /**
@@ -10,10 +12,22 @@ import type { TenantContext } from './types.js';
  * When auth is disabled: passthrough.
  * When auth is enabled: extracts Bearer token, validates against api_keys table,
  * verifies the key's tenant owns the requested database, attaches req.tenant.
+ *
+ * When tenantSlug is present in route params:
+ * 1. Looks up tenant by slug to get tenantId
+ * 2. Verifies API key's tenantId matches
+ * 3. Verifies database ownership
  */
 export function validateMcpApiKey(): RequestHandler {
   return async (req: Request, res: Response, next: NextFunction) => {
     if (!isAuthEnabled()) {
+      req.tenant = { tenantId: undefined };
+      return next();
+    }
+
+    // Allow internal server-to-server requests (e.g., chat → MCP)
+    const internalSecret = req.headers['x-internal-secret'] as string;
+    if (internalSecret && internalSecret === getInternalSecret()) {
       req.tenant = { tenantId: undefined };
       return next();
     }
@@ -53,6 +67,29 @@ export function validateMcpApiKey(): RequestHandler {
       return;
     }
 
+    // When tenantSlug is present, verify it matches the API key's tenant
+    const { tenantSlug } = req.params;
+    if (tenantSlug) {
+      const tenantStore = getTenantStore();
+      const tenant = tenantStore.getBySlug(tenantSlug);
+      if (!tenant) {
+        res.status(404).json({
+          jsonrpc: '2.0',
+          error: { code: -32000, message: `Unknown tenant: '${tenantSlug}'` },
+          id: null,
+        });
+        return;
+      }
+      if (tenant.id !== apiKey.tenantId) {
+        res.status(403).json({
+          jsonrpc: '2.0',
+          error: { code: -32000, message: 'API key does not belong to this tenant' },
+          id: null,
+        });
+        return;
+      }
+    }
+
     // Verify the key's tenant owns the requested database
     const databaseId = req.params.databaseId;
     if (databaseId) {
@@ -68,8 +105,8 @@ export function validateMcpApiKey(): RequestHandler {
       }
     }
 
-    // Touch last used (fire-and-forget)
-    store.touchLastUsed(apiKey.id);
+    // Touch last used (fire-and-forget, non-critical)
+    try { store.touchLastUsed(apiKey.id); } catch { /* best-effort */ }
 
     const tenant: TenantContext = {
       tenantId: apiKey.tenantId,

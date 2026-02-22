@@ -6,6 +6,16 @@ vi.mock('../config.js', () => ({
   isAuthEnabled: vi.fn(() => false),
 }));
 
+// Mock tenant-store to avoid loading config.js (main config with CUBE_JWT_SECRET)
+vi.mock('../tenant-store.js', () => ({
+  getTenantStore: vi.fn(),
+}));
+
+// Mock tenant-slug to avoid transitive imports
+vi.mock('../tenant-slug.js', () => ({
+  generateUniqueSlug: vi.fn(),
+}));
+
 import { isAuthEnabled } from '../config.js';
 import { requireTenant, requireOrgAdmin } from '../middleware.js';
 

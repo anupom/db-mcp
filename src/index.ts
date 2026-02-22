@@ -3,6 +3,7 @@ import { loadConfig, getConfig } from './config.js';
 import { McpServer } from './mcp/server.js';
 import { getLogger } from './utils/logger.js';
 import { getDatabaseManager } from './registry/manager.js';
+import { isAuthEnabled } from './auth/config.js';
 
 async function main(): Promise<void> {
   try {
@@ -20,10 +21,10 @@ async function main(): Promise<void> {
       'Starting DB-MCP server'
     );
 
-    // Auto-initialize default database if none exist
+    // Auto-initialize default database if none exist (self-hosted mode only)
     const manager = getDatabaseManager();
     const databases = manager.listDatabases();
-    if (databases.length === 0) {
+    if (databases.length === 0 && !isAuthEnabled()) {
       logger.info('No databases configured, initializing default from environment');
       await manager.initializeDefaultDatabase();
     } else {

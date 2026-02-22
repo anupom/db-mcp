@@ -12,7 +12,7 @@ import ApiKeysPage from './pages/ApiKeysPage';
 import { ClerkSidebar } from './components/auth/ClerkSidebar';
 
 function App() {
-  const { authEnabled } = useAuthConfig();
+  const { authEnabled, clerkPublishableKey } = useAuthConfig();
 
   const navItems = [
     { to: '/', icon: Server, label: 'Databases' },
@@ -57,7 +57,7 @@ function App() {
               ))}
             </ul>
           </nav>
-          {authEnabled && <ClerkSidebar />}
+          {authEnabled && clerkPublishableKey && <ClerkSidebar />}
         </aside>
 
         {/* Main Content */}

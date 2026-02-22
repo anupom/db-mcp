@@ -10,15 +10,20 @@ import { useOrganization } from '@clerk/clerk-react';
  * This is safe because authEnabled doesn't change during the component's lifecycle.
  */
 export function useClerkOrgId(authEnabled: boolean): string | undefined {
-  // We always call the hook but only use its result when auth is enabled.
-  // This is safe because when auth is enabled, ClerkProvider is always in the tree above us
-  // (see AppWithAuth.tsx), and when auth is disabled, we never render inside ClerkProvider,
-  // so we need the guard.
   if (!authEnabled) {
     return undefined;
   }
 
-  // eslint-disable-next-line react-hooks/rules-of-hooks
-  const { organization } = useOrganization();
-  return organization?.id;
+  // When authEnabled=true but ClerkProvider is missing (e.g. clerkPublishableKey is null),
+  // useOrganization() throws synchronously. Catch it to avoid crashing the entire app.
+  try {
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    const { organization } = useOrganization();
+    return organization?.id;
+  } catch (e) {
+    if (e instanceof Error && e.message.includes('ClerkProvider')) {
+      return undefined;
+    }
+    throw e;
+  }
 }

@@ -1,6 +1,8 @@
 import { Request, Response, NextFunction, RequestHandler } from 'express';
 import { isAuthEnabled } from './config.js';
 import type { TenantContext } from './types.js';
+import { getTenantStore } from './tenant-store.js';
+import { generateUniqueSlug } from './tenant-slug.js';
 
 // Re-export to ensure type augmentation is loaded
 export type { TenantContext } from './types.js';
@@ -113,5 +115,37 @@ export function requireOrgAdmin(): RequestHandler {
     }
 
     next();
+  };
+}
+
+/**
+ * Ensure tenant record exists in the tenants table and attach slug.
+ * When auth is disabled: passthrough.
+ * When auth is enabled: looks up tenant by tenantId, auto-creates if not found.
+ * Must be used after requireTenant().
+ */
+export function ensureTenant(): RequestHandler {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    if (!isAuthEnabled() || !req.tenant?.tenantId) {
+      return next();
+    }
+
+    try {
+      const store = getTenantStore();
+      let tenant = store.getById(req.tenant.tenantId);
+
+      if (!tenant) {
+        const slug = await generateUniqueSlug(
+          req.tenant.tenantId,
+          (s) => store.slugExists(s)
+        );
+        tenant = store.create(req.tenant.tenantId, slug);
+      }
+
+      req.tenant.slug = tenant.slug;
+      next();
+    } catch (err) {
+      next(err);
+    }
   };
 }

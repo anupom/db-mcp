@@ -1,0 +1,10 @@
+# Development overrides: exposes infrastructure ports for local dev
+# Usage: docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres cube
+services:
+  postgres:
+    ports:
+      - "5434:5432"
+
+  cube:
+    ports:
+      - "4000:4000"

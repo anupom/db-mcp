@@ -4,24 +4,15 @@ import { streamText, stepCountIs, convertToModelMessages, UIMessage } from 'ai';
 import { createMCPClient, MCPClient } from '@ai-sdk/mcp';
 import { getLogger } from '../../utils/logger.js';
 import { getConfig } from '../../config.js';
-import { getDatabaseManager } from '../../registry/manager.js';
+import { verifyDatabaseAccess } from '../middleware/database-access.js';
+import { getInternalSecret } from '../../auth/internal-secret.js';
 
 const router = Router();
 const logger = getLogger().child({ component: 'chat' });
 
 router.post('/', async (req: Request, res: Response) => {
-  const databaseId = (req.query.database as string) || 'default';
-  const tenantId = req.tenant?.tenantId;
-
-  // Verify database ownership
-  if (tenantId !== undefined) {
-    const manager = getDatabaseManager();
-    const db = manager.getDatabase(databaseId, tenantId);
-    if (!db) {
-      res.status(404).json({ error: `Database '${databaseId}' not found` });
-      return;
-    }
-  }
+  const databaseId = verifyDatabaseAccess(req, res);
+  if (!databaseId) return;
 
   const { messages: uiMessages } = req.body as { messages: UIMessage[] };
 
@@ -42,6 +33,9 @@ router.post('/', async (req: Request, res: Response) => {
       transport: {
         type: 'http',
         url: `http://localhost:${config.MCP_HTTP_PORT}/mcp/${databaseId}`,
+        headers: {
+          'X-Internal-Secret': getInternalSecret(),
+        },
       },
     });
 

@@ -6,6 +6,7 @@ export interface TenantContext {
   tenantId?: string;
   userId?: string;
   orgRole?: string;
+  slug?: string;
 }
 
 // Augment Express Request with tenant context

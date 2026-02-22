@@ -65,6 +65,10 @@ export const DatabaseConfigSchema = z.object({
 
   // Tenant ID for multi-tenant SaaS mode (undefined in self-hosted)
   tenantId: z.string().optional(),
+
+  // Original user-facing identifier before tenant scoping (e.g. "analytics")
+  // The actual `id` may be scoped to "{slug}-{hash}" in SaaS mode
+  slug: z.string().optional(),
 });
 
 export type DatabaseConfig = z.infer<typeof DatabaseConfigSchema>;
@@ -101,6 +105,7 @@ export interface DatabaseSummary {
   status: DatabaseStatus;
   connectionType: DatabaseType;
   tenantId?: string;
+  slug?: string;
   createdAt?: string;
   updatedAt?: string;
 }

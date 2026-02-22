@@ -9,28 +9,9 @@ import {
   type CatalogOverride,
 } from '../services/catalog-service.js';
 import { getCubeApiMeta } from '../services/cube-generator.js';
-import { getDatabaseManager } from '../../registry/manager.js';
+import { verifyDatabaseAccess } from '../middleware/database-access.js';
 
 const router = Router();
-
-/**
- * Verify the caller owns the requested database.
- */
-function verifyDatabaseAccess(req: Request, res: Response): string | null {
-  const databaseId = (req.query.database as string) || 'default';
-  const tenantId = req.tenant?.tenantId;
-
-  if (tenantId !== undefined) {
-    const manager = getDatabaseManager();
-    const db = manager.getDatabase(databaseId, tenantId);
-    if (!db) {
-      res.status(404).json({ error: `Database '${databaseId}' not found` });
-      return null;
-    }
-  }
-
-  return databaseId;
-}
 
 // GET /api/catalog/members - All members with governance status
 // Query param: ?database=<id> (default: "default")

@@ -10,6 +10,7 @@ import { DatabaseMcpHandler } from './handler.js';
 import adminRoutes, { healthCheck } from '../admin/index.js';
 import { clerkSessionMiddleware } from '../auth/middleware.js';
 import { validateMcpApiKey } from '../auth/api-key-middleware.js';
+import { isAuthEnabled } from '../auth/config.js';
 
 export class McpServer {
   private servers: Server[] = [];
@@ -191,15 +192,13 @@ export class McpServer {
       res.redirect(307, newUrl);
     });
 
-    // Database-specific MCP endpoint (protected by API key when auth is enabled)
-    app.all('/mcp/:databaseId', validateMcpApiKey(), async (req, res) => {
+    // Shared MCP request handler
+    const handleMcpEndpoint = async (req: express.Request, res: express.Response) => {
       const { databaseId } = req.params;
 
       try {
-        // Get or create handler for this database
         const handler = await this.getHandler(databaseId);
 
-        // Get or create transport map for this database
         let dbTransportMap = dbTransports.get(databaseId);
         if (!dbTransportMap) {
           dbTransportMap = new Map();
@@ -216,14 +215,24 @@ export class McpServer {
           id: null,
         });
       }
-    });
+    };
+
+    // Tenant-scoped MCP endpoint (SaaS mode, registered first for priority)
+    if (isAuthEnabled()) {
+      app.all('/mcp/:tenantSlug/:databaseId', validateMcpApiKey(), handleMcpEndpoint);
+    }
+
+    // Database-specific MCP endpoint (self-hosted + internal server-to-server)
+    app.all('/mcp/:databaseId', validateMcpApiKey(), handleMcpEndpoint);
 
     // List active databases endpoint
     app.get('/databases', (_req, res) => {
       const manager = getDatabaseManager();
       const databases = manager.listDatabases();
       res.json({
-        databases: databases.filter(d => d.status === 'active'),
+        databases: databases
+          .filter(d => d.status === 'active')
+          .map(d => ({ id: d.id })),
       });
     });
 

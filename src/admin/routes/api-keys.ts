@@ -42,6 +42,10 @@ router.post('/', requireOrgAdmin(), (req: Request, res: Response) => {
     res.status(400).json({ error: 'name is required' });
     return;
   }
+  if (name.trim().length > 100) {
+    res.status(400).json({ error: 'name must be 100 characters or fewer' });
+    return;
+  }
 
   const store = getApiKeyStore();
   const { apiKey, rawKey } = store.create(tenantId, name.trim(), userId);

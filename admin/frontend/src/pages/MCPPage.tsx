@@ -3,6 +3,8 @@ import { useQuery } from '@tanstack/react-query';
 import { Plug, ChevronDown, ChevronRight, Copy, Check, Loader2, AlertTriangle, AlertCircle, Server, Terminal, Globe } from 'lucide-react';
 import { mcpApi, type MCPTool } from '../api/client';
 import { useDatabaseContext } from '../context/DatabaseContext';
+import { useTenantSlug } from '../hooks/useTenantSlug';
+import { buildMcpUrl } from '../utils/mcp-url';
 import DatabaseSelector from '../components/shared/DatabaseSelector';
 
 function ToolCard({ tool, isExpanded, onToggle }: { tool: MCPTool; isExpanded: boolean; onToggle: () => void }) {
@@ -65,6 +67,7 @@ function ToolCard({ tool, isExpanded, onToggle }: { tool: MCPTool; isExpanded: b
 
 export default function MCPPage() {
   const { databaseId, activeDatabases } = useDatabaseContext();
+  const { slug: tenantSlug } = useTenantSlug();
   const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set(['catalog.search']));
   const [copiedSnippet, setCopiedSnippet] = useState(false);
   const [copiedCurl, setCopiedCurl] = useState(false);
@@ -96,8 +99,8 @@ export default function MCPPage() {
     });
   };
 
-  // Build the endpoint URL with databaseId
-  const mcpEndpoint = databaseId ? `/mcp/${databaseId}` : '';
+  // Build the endpoint URL with databaseId (and tenant slug in SaaS mode)
+  const mcpEndpoint = databaseId ? buildMcpUrl(databaseId, tenantSlug) : '';
   const fullEndpoint = typeof window !== 'undefined' ? `${window.location.origin}${mcpEndpoint}` : mcpEndpoint;
 
   const integrationSnippet = serverInfo && databaseId

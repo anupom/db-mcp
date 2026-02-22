@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import { mkdirSync, existsSync, writeFileSync, copyFileSync, readdirSync } from 'fs';
 import { writeFile } from 'fs/promises';
 import { join, dirname } from 'path';
@@ -20,6 +21,27 @@ const logger = getLogger().child({ component: 'DatabaseManager' });
  * Event listener type
  */
 type EventListener = (event: DatabaseRegistryEvent) => void;
+
+/**
+ * Scope a database ID to a tenant by appending an 8-char hash of the tenantId.
+ * Self-hosted (no tenant) returns the slug unchanged.
+ * SaaS tenants get '{slug}-{8-char sha256}' to avoid PK collisions in the
+ * global ID namespace (Cube.js routes entirely on databaseId).
+ */
+export function scopeDatabaseId(slug: string, tenantId?: string): string {
+  if (!tenantId) return slug;
+  const hash = createHash('sha256').update(tenantId).digest('hex').slice(0, 8);
+  return `${slug}-${hash}`;
+}
+
+/**
+ * Generate a globally unique default database ID for a tenant.
+ * Self-hosted (no tenant) gets 'default'.
+ * SaaS tenants get 'default-{8-char hash}' to avoid PK collisions.
+ */
+export function defaultDatabaseId(tenantId?: string): string {
+  return scopeDatabaseId('default', tenantId);
+}
 
 /**
  * Database registry manager handles CRUD operations and lifecycle management
@@ -117,11 +139,15 @@ export class DatabaseManager {
    * Create a new database
    */
   async createDatabase(config: CreateDatabaseConfig, tenantId?: string): Promise<DatabaseConfig> {
-    logger.info({ id: config.id, name: config.name, tenantId }, 'Creating database');
+    // Scope the user-provided ID to the tenant so it's globally unique
+    const userSlug = config.id;
+    const scopedId = scopeDatabaseId(userSlug, tenantId);
 
-    // Validate ID doesn't exist
-    if (this.store.exists(config.id, tenantId)) {
-      throw new Error(`Database with ID '${config.id}' already exists`);
+    logger.info({ slug: userSlug, scopedId, name: config.name, tenantId }, 'Creating database');
+
+    // Check global uniqueness of the scoped ID (no tenant filter — it's the PK)
+    if (this.store.exists(scopedId)) {
+      throw new Error(`Database with ID '${userSlug}' already exists`);
     }
 
     // Validate JWT secret compatibility with Cube.js
@@ -129,15 +155,15 @@ export class DatabaseManager {
     const globalConfig = getConfig();
     if (config.jwtSecret && config.jwtSecret !== globalConfig.CUBE_JWT_SECRET) {
       logger.warn(
-        { id: config.id },
+        { id: scopedId },
         'Custom jwtSecret differs from global CUBE_JWT_SECRET. ' +
         'Cube.js verifies all JWTs with the global secret. ' +
         'Queries may fail with 401 if secrets do not match.'
       );
     }
 
-    // Initialize data directory structure
-    this.initializeDataDirectory(config.id);
+    // Initialize data directory structure using the scoped ID
+    this.initializeDataDirectory(scopedId);
 
     // Create database record - use global JWT secret if not provided
     // Don't persist cubeApiUrl if it matches the env var default — the runtime
@@ -148,6 +174,8 @@ export class DatabaseManager {
       : config.cubeApiUrl;
     const databaseWithDefaults = {
       ...config,
+      id: scopedId,
+      slug: userSlug,
       cubeApiUrl,
       jwtSecret: config.jwtSecret || globalConfig.CUBE_JWT_SECRET,
     };
@@ -223,8 +251,9 @@ export class DatabaseManager {
       throw new Error('Cannot delete an active database. Deactivate first.');
     }
 
-    // Don't allow deleting 'default' database
-    if (id === 'default') {
+    // Don't allow deleting the default database (slug-based check catches
+    // both 'default' in self-hosted and 'default-{hash}' in SaaS)
+    if (existing.slug === 'default') {
       throw new Error('Cannot delete the default database');
     }
 
@@ -399,19 +428,24 @@ export class DatabaseManager {
   }
 
   /**
-   * Initialize the default database if it doesn't exist
+   * Initialize the default database if it doesn't exist.
+   * Uses a tenant-scoped ID so each tenant gets its own globally unique database.
+   * Returns the database ID that was created (or already existed).
    */
-  async initializeDefaultDatabase(): Promise<void> {
-    if (this.store.exists('default')) {
-      logger.debug('Default database already exists');
-      return;
+  async initializeDefaultDatabase(tenantId?: string): Promise<string> {
+    // scopeDatabaseId('default', tenantId) produces the same result as defaultDatabaseId(tenantId)
+    const dbId = defaultDatabaseId(tenantId);
+
+    if (this.store.exists(dbId)) {
+      logger.debug({ dbId }, 'Default database already exists');
+      return dbId;
     }
 
-    logger.info('Creating default database');
+    logger.info({ dbId, tenantId }, 'Creating default database');
 
     const globalConfig = getConfig();
 
-    // Create default database from environment config (no tenant — global)
+    // Pass 'default' as the slug — createDatabase will scope it to dbId
     await this.createDatabase({
       id: 'default',
       name: 'Default Database',
@@ -429,12 +463,12 @@ export class DatabaseManager {
       denyMembers: globalConfig.DENY_MEMBERS,
       defaultSegments: globalConfig.DEFAULT_SEGMENTS,
       returnSql: globalConfig.RETURN_SQL,
-    });
+    }, tenantId);
 
     // Copy existing agent_catalog.yaml if it exists
     const existingCatalogPath = globalConfig.AGENT_CATALOG_PATH;
     if (existsSync(existingCatalogPath)) {
-      const defaultCatalogPath = this.getCatalogPath('default');
+      const defaultCatalogPath = this.getCatalogPath(dbId);
       try {
         copyFileSync(existingCatalogPath, defaultCatalogPath);
         logger.info('Copied existing agent_catalog.yaml to default database');
@@ -446,7 +480,7 @@ export class DatabaseManager {
     // Copy existing cube YAML files if they exist
     // Default cube model path is cube/model/cubes relative to the project root
     const existingCubeDir = join(dirname(this.dataDir), 'cube', 'model', 'cubes');
-    const defaultCubeDir = this.getCubeModelPath('default') + '/cubes';
+    const defaultCubeDir = this.getCubeModelPath(dbId) + '/cubes';
     if (existsSync(existingCubeDir)) {
       try {
         const files = readdirSync(existingCubeDir);
@@ -467,10 +501,12 @@ export class DatabaseManager {
     }
 
     // Activate by default
-    await this.activateDatabase('default');
+    await this.activateDatabase(dbId, tenantId);
 
     // Export connections for Cube.js
     await this.exportConnectionsForCube();
+
+    return dbId;
   }
 }
 

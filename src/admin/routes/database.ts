@@ -1,28 +1,8 @@
 import { Router, Request, Response } from 'express';
 import { getTables, getTableDetails, getSampleData } from '../services/postgres.js';
-import { getDatabaseManager } from '../../registry/manager.js';
+import { verifyDatabaseAccess } from '../middleware/database-access.js';
 
 const router = Router();
-
-/**
- * Verify the caller owns the requested database.
- * Returns the databaseId if valid, or sends an error response and returns null.
- */
-function verifyDatabaseAccess(req: Request, res: Response): string | null {
-  const databaseId = (req.query.database as string) || 'default';
-  const tenantId = req.tenant?.tenantId;
-
-  if (tenantId !== undefined) {
-    const manager = getDatabaseManager();
-    const db = manager.getDatabase(databaseId, tenantId);
-    if (!db) {
-      res.status(404).json({ error: `Database '${databaseId}' not found` });
-      return null;
-    }
-  }
-
-  return databaseId;
-}
 
 // GET /api/database/tables - List all tables with columns
 // Query param: ?database=<id> (default: "default")

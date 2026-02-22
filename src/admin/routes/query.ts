@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { readCatalog, getCubeApiConfig } from '../services/catalog-service.js';
-import { getDatabaseManager } from '../../registry/manager.js';
+import { verifyDatabaseAccess } from '../middleware/database-access.js';
 
 const router = Router();
 
@@ -32,25 +32,6 @@ async function generateToken(jwtSecret: string, databaseId?: string): Promise<st
     // Fallback for when jsonwebtoken isn't available
     return Buffer.from(JSON.stringify({ ...payload, exp: Math.floor(Date.now() / 1000) + 3600 })).toString('base64');
   }
-}
-
-/**
- * Verify the caller owns the requested database.
- */
-function verifyDatabaseAccess(req: Request, res: Response): string | null {
-  const databaseId = (req.query.database as string) || 'default';
-  const tenantId = req.tenant?.tenantId;
-
-  if (tenantId !== undefined) {
-    const manager = getDatabaseManager();
-    const db = manager.getDatabase(databaseId, tenantId);
-    if (!db) {
-      res.status(404).json({ error: `Database '${databaseId}' not found` });
-      return null;
-    }
-  }
-
-  return databaseId;
 }
 
 // POST /api/query/validate - Validate query against rules

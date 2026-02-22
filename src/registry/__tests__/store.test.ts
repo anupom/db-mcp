@@ -21,6 +21,7 @@ vi.mock('../../config.js', () => {
 const { __setDataDir } = await import('../../config.js') as any;
 
 import { DatabaseStore } from '../store.js';
+import { scopeDatabaseId, defaultDatabaseId } from '../manager.js';
 import type { CreateDatabaseConfig } from '../types.js';
 
 function makeConfig(id: string, overrides?: Partial<CreateDatabaseConfig>): CreateDatabaseConfig {
@@ -188,5 +189,95 @@ describe('DatabaseStore — tenant isolation', () => {
   it('exists with wrong tenantId returns false', () => {
     store.create(makeConfig('db1'), 'tenant-a');
     expect(store.exists('db1', 'tenant-b')).toBe(false);
+  });
+
+  // -- slug --
+
+  it('create persists slug from config', () => {
+    const db = store.create(makeConfig('scoped-id-123', { slug: 'analytics' }), 'tenant-a');
+    expect(db.id).toBe('scoped-id-123');
+    expect(db.slug).toBe('analytics');
+  });
+
+  it('create defaults slug to id when not provided', () => {
+    const db = store.create(makeConfig('mydb'));
+    expect(db.slug).toBe('mydb');
+  });
+
+  it('list returns slug', () => {
+    store.create(makeConfig('scoped-id', { slug: 'analytics' }), 'tenant-a');
+    const list = store.list('tenant-a');
+    expect(list[0].slug).toBe('analytics');
+  });
+});
+
+describe('scopeDatabaseId', () => {
+  it('returns slug unchanged when no tenantId', () => {
+    expect(scopeDatabaseId('analytics')).toBe('analytics');
+  });
+
+  it('appends 8-char hash when tenantId is provided', () => {
+    const result = scopeDatabaseId('analytics', 'tenant-a');
+    expect(result).toMatch(/^analytics-[a-f0-9]{8}$/);
+  });
+
+  it('produces different IDs for different tenants', () => {
+    const a = scopeDatabaseId('analytics', 'tenant-a');
+    const b = scopeDatabaseId('analytics', 'tenant-b');
+    expect(a).not.toBe(b);
+  });
+
+  it('is consistent with defaultDatabaseId', () => {
+    expect(scopeDatabaseId('default', 'org_123')).toBe(defaultDatabaseId('org_123'));
+  });
+
+  it('is deterministic', () => {
+    const a = scopeDatabaseId('mydb', 'tenant-x');
+    const b = scopeDatabaseId('mydb', 'tenant-x');
+    expect(a).toBe(b);
+  });
+});
+
+describe('slug-based scoping — no PK collision', () => {
+  let tmpDir: string;
+  let store: DatabaseStore;
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'dbmcp-test-'));
+    __setDataDir(tmpDir);
+    store = new DatabaseStore(join(tmpDir, 'config.db'));
+  });
+
+  afterEach(() => {
+    store.close();
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('two tenants can use the same slug without PK collision', () => {
+    const idA = scopeDatabaseId('analytics', 'tenant-a');
+    const idB = scopeDatabaseId('analytics', 'tenant-b');
+
+    store.create(makeConfig(idA, { slug: 'analytics' }), 'tenant-a');
+    store.create(makeConfig(idB, { slug: 'analytics' }), 'tenant-b');
+
+    expect(store.exists(idA)).toBe(true);
+    expect(store.exists(idB)).toBe(true);
+
+    const listA = store.list('tenant-a');
+    const listB = store.list('tenant-b');
+    expect(listA).toHaveLength(1);
+    expect(listB).toHaveLength(1);
+    expect(listA[0].slug).toBe('analytics');
+    expect(listB[0].slug).toBe('analytics');
+  });
+
+  it('scoped IDs are globally unique', () => {
+    const idA = scopeDatabaseId('db', 'tenant-a');
+    const idB = scopeDatabaseId('db', 'tenant-b');
+    expect(idA).not.toBe(idB);
+
+    store.create(makeConfig(idA, { slug: 'db' }), 'tenant-a');
+    // Should not throw UNIQUE constraint error
+    expect(() => store.create(makeConfig(idB, { slug: 'db' }), 'tenant-b')).not.toThrow();
   });
 });
