@@ -1,7 +1,8 @@
 import { createHash } from 'crypto';
 import { mkdirSync, existsSync, writeFileSync, copyFileSync, readdirSync } from 'fs';
-import { writeFile } from 'fs/promises';
+import { writeFile, rename } from 'fs/promises';
 import { join, dirname } from 'path';
+import { randomBytes } from 'crypto';
 import { stringify as yamlStringify } from 'yaml';
 import { getDatabaseStore, type DatabaseStore } from './store.js';
 import { getConfig } from '../config.js';
@@ -423,7 +424,9 @@ export class DatabaseManager {
     }
 
     const exportPath = join(this.dataDir, 'cube-connections.json');
-    await writeFile(exportPath, JSON.stringify(connections, null, 2));
+    const tmpPath = `${exportPath}.${randomBytes(4).toString('hex')}.tmp`;
+    await writeFile(tmpPath, JSON.stringify(connections, null, 2));
+    await rename(tmpPath, exportPath);
     logger.info({ path: exportPath, count: Object.keys(connections).length }, 'Exported database connections for Cube.js');
   }
 

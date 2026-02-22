@@ -147,11 +147,19 @@ export function ensureTenant(): RequestHandler {
       let tenant = store.getById(req.tenant.tenantId);
 
       if (!tenant) {
-        const slug = generateUniqueSlug(
-          req.tenant.tenantId,
-          (s) => store.slugExists(s)
-        );
-        tenant = store.create(req.tenant.tenantId, slug);
+        try {
+          const slug = generateUniqueSlug(
+            req.tenant.tenantId,
+            (s) => store.slugExists(s)
+          );
+          tenant = store.create(req.tenant.tenantId, slug);
+        } catch (err) {
+          // Handle race: concurrent request already created this tenant
+          if (err instanceof Error && (err.message.includes('UNIQUE constraint') || err.message.includes('PRIMARY'))) {
+            tenant = store.getById(req.tenant.tenantId);
+          }
+          if (!tenant) throw err;
+        }
       }
 
       req.tenant.slug = tenant.slug;

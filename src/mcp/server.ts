@@ -278,6 +278,8 @@ export class McpServer {
             transports.delete(id);
             this.logger.debug({ sessionId: id }, 'MCP session closed');
           }
+          const idx = this.servers.indexOf(server);
+          if (idx !== -1) this.servers.splice(idx, 1);
         };
 
         // Connect transport to server

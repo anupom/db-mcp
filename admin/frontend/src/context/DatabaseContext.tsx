@@ -21,11 +21,19 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const orgId = useClerkOrgId();
 
+  const storageKey = orgId ? `${STORAGE_KEY}-${orgId}` : STORAGE_KEY;
+
   const [databaseId, setDatabaseIdState] = useState<string | null>(() => {
-    // Initialize from localStorage
-    const stored = localStorage.getItem(STORAGE_KEY);
+    // Initialize from localStorage (org-scoped when auth is enabled)
+    const stored = localStorage.getItem(storageKey);
     return stored || null;
   });
+
+  // Clear selection when org changes (storageKey changes)
+  useEffect(() => {
+    const stored = localStorage.getItem(storageKey);
+    setDatabaseIdState(stored || null);
+  }, [storageKey]);
 
   // Include orgId in query key so database list refetches on org switch
   const { data, isLoading, error, refetch } = useQuery({
@@ -40,15 +48,15 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
     [databases]
   );
 
-  // Set database ID and persist to localStorage
+  // Set database ID and persist to localStorage (org-scoped)
   const setDatabaseId = useCallback((id: string | null) => {
     setDatabaseIdState(id);
     if (id) {
-      localStorage.setItem(STORAGE_KEY, id);
+      localStorage.setItem(storageKey, id);
     } else {
-      localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem(storageKey);
     }
-  }, []);
+  }, [storageKey]);
 
   // Auto-select first active database if none selected or selected is no longer active
   useEffect(() => {

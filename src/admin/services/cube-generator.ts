@@ -117,9 +117,22 @@ export async function listCubeFiles(databaseId?: string): Promise<Array<{ name: 
   }
 }
 
+/**
+ * Validate fileName to prevent path traversal.
+ * Only allows alphanumeric, hyphens, underscores, and dots (no slashes or ..).
+ */
+function validateFileName(fileName: string): string {
+  const name = fileName.endsWith('.yml') ? fileName : `${fileName}.yml`;
+  if (/[/\\]/.test(name) || name.includes('..') || !(/^[a-zA-Z0-9._-]+$/.test(name))) {
+    throw new Error(`Invalid file name: '${fileName}'. Only alphanumeric characters, hyphens, underscores, and dots are allowed.`);
+  }
+  return name;
+}
+
 export async function readCubeFile(fileName: string, databaseId?: string): Promise<{ content: string; parsed: unknown }> {
   const cubeModelPath = await getCubeModelPath(databaseId);
-  const filePath = path.join(cubeModelPath, fileName.endsWith('.yml') ? fileName : `${fileName}.yml`);
+  const safeName = validateFileName(fileName);
+  const filePath = path.join(cubeModelPath, safeName);
   const content = await fs.readFile(filePath, 'utf-8');
   const parsed = yaml.parse(content);
   return { content, parsed };
@@ -127,7 +140,8 @@ export async function readCubeFile(fileName: string, databaseId?: string): Promi
 
 export async function writeCubeFile(fileName: string, content: string, databaseId?: string): Promise<void> {
   const cubeModelPath = await getCubeModelPath(databaseId);
-  const filePath = path.join(cubeModelPath, fileName.endsWith('.yml') ? fileName : `${fileName}.yml`);
+  const safeName = validateFileName(fileName);
+  const filePath = path.join(cubeModelPath, safeName);
   // Validate YAML before writing
   yaml.parse(content);
   await fs.writeFile(filePath, content, 'utf-8');
