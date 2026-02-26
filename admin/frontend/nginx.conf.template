@@ -6,7 +6,7 @@ server {
 
     # Resolve upstream at request time (not startup) so nginx starts
     # even if the backend isn't ready yet. Railway internal DNS.
-    resolver ${DNS_RESOLVER} valid=10s ipv6=off;
+    resolver ${DNS_RESOLVER} valid=10s;
     set $backend http://${BACKEND_HOST};
 
     # API proxy
