@@ -3,4 +3,4 @@ dockerfilePath = "Dockerfile"
 
 [deploy]
 healthcheckPath = "/"
-healthcheckTimeout = 10
+healthcheckTimeout = 30

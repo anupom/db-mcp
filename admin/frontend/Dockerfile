@@ -15,6 +15,8 @@ COPY nginx.conf.template /etc/nginx/templates/default.conf.template
 
 # Default backend host for Docker Compose; override for Railway
 ENV BACKEND_HOST=db-mcp:3000
+# PORT defaults to 80 (Docker Compose); Railway overrides with its own PORT
+ENV PORT=80
 
 EXPOSE 80
 
