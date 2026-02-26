@@ -9,9 +9,10 @@ server {
     resolver ${DNS_RESOLVER} valid=10s;
     set $backend http://${BACKEND_HOST};
 
-    # API proxy
+    # API proxy — use $backend without URI path; with variables nginx
+    # passes the original request URI as-is (no path rewriting)
     location /api/ {
-        proxy_pass $backend/api/;
+        proxy_pass $backend;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -22,7 +23,7 @@ server {
 
     # MCP proxy (SSE support)
     location /mcp/ {
-        proxy_pass $backend/mcp/;
+        proxy_pass $backend;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection '';
@@ -34,14 +35,14 @@ server {
 
     # Health check proxy
     location /health {
-        proxy_pass $backend/health;
+        proxy_pass $backend;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
     }
 
     # Databases API proxy (top-level route)
     location /databases {
-        proxy_pass $backend/databases;
+        proxy_pass $backend;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
     }
