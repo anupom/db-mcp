@@ -1,6 +1,2 @@
 [build]
 dockerfilePath = "Dockerfile"
-
-[deploy]
-healthcheckPath = "/"
-healthcheckTimeout = 30
