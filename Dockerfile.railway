@@ -1,0 +1,47 @@
+# Railway combined container: Express backend + Cube.js
+# Stage 1: Build Express backend with Node 22 (must match cubejs/cube runtime)
+FROM node:22-alpine AS builder
+
+WORKDIR /app
+
+COPY package.json package-lock.json* ./
+RUN npm ci
+
+COPY tsconfig.json ./
+COPY src ./src
+
+RUN npm run build
+
+# Production dependencies (separate layer for caching)
+RUN rm -rf node_modules && npm ci --omit=dev
+
+# Stage 2: Runtime — cubejs/cube:latest (Node 22)
+FROM cubejs/cube:latest
+
+# Install supervisord
+USER root
+RUN apk add --no-cache supervisor
+
+# Copy compiled Express backend
+WORKDIR /app
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/package.json ./
+
+# Copy Cube.js config
+COPY cube/cube.js /cube/conf/cube.js
+
+# Copy supervisord config
+COPY supervisord.conf /etc/supervisord.conf
+
+# Create data directory (will be mounted as Railway volume)
+RUN mkdir -p /cube/data
+
+ENV NODE_ENV=production
+
+# Express on 3000, Cube.js on 4000 (internal)
+EXPOSE 3000
+
+# Clear the cubejs/cube entrypoint so we can use supervisord
+ENTRYPOINT []
+CMD ["supervisord", "-c", "/etc/supervisord.conf"]

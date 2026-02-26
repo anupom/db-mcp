@@ -401,8 +401,10 @@ export class DatabaseManager {
     // Detect if Cube.js is running in Docker while the backend is on the host.
     // When CUBE_API_URL uses localhost, we're on the host talking to a Docker Cube.js,
     // so database hosts that point to localhost need rewriting to host.docker.internal.
+    // Skip rewriting when CUBE_COLOCATED=true (both processes share a container, e.g. Railway).
     const cubeApiUrl = getConfig().CUBE_API_URL;
-    const cubeInDocker = /https?:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/.test(cubeApiUrl);
+    const cubeColocated = process.env.CUBE_COLOCATED === 'true';
+    const cubeInDocker = !cubeColocated && /https?:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/.test(cubeApiUrl);
 
     // No tenantId filter — export ALL active databases for Cube.js
     const databases = this.listActiveDatabases();
