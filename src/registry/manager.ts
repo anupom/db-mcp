@@ -1,7 +1,7 @@
 import { createHash } from 'crypto';
-import { mkdirSync, existsSync, writeFileSync, copyFileSync, readdirSync } from 'fs';
+import { mkdirSync, existsSync, writeFileSync } from 'fs';
 import { writeFile, rename } from 'fs/promises';
-import { join, dirname } from 'path';
+import { join } from 'path';
 import { randomBytes } from 'crypto';
 import { stringify as yamlStringify } from 'yaml';
 import { getDatabaseStore, type DatabaseStore } from './store.js';
@@ -398,15 +398,26 @@ export class DatabaseManager {
       options?: Record<string, unknown>;
     }> = {};
 
+    // Detect if Cube.js is running in Docker while the backend is on the host.
+    // When CUBE_API_URL uses localhost, we're on the host talking to a Docker Cube.js,
+    // so database hosts that point to localhost need rewriting to host.docker.internal.
+    const cubeApiUrl = getConfig().CUBE_API_URL;
+    const cubeInDocker = /https?:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/.test(cubeApiUrl);
+
     // No tenantId filter — export ALL active databases for Cube.js
     const databases = this.listActiveDatabases();
     for (const db of databases) {
       if (db.connection) {
+        let host = db.connection.host;
+        if (cubeInDocker && host && /^(localhost|127\.0\.0\.1)$/.test(host)) {
+          host = 'host.docker.internal';
+        }
+
         // Export the full connection object - different DB types need different fields
         connections[db.id] = {
           type: db.connection.type,
           // Relational DBs (postgres, mysql, redshift, clickhouse)
-          host: db.connection.host,
+          host,
           port: db.connection.port,
           database: db.connection.database,
           user: db.connection.user,
@@ -451,8 +462,8 @@ export class DatabaseManager {
     // Pass 'default' as the slug — createDatabase will scope it to dbId
     await this.createDatabase({
       id: 'default',
-      name: 'Default Database',
-      description: 'Default database configured via environment variables',
+      name: 'Sample Database',
+      description: 'Auto-created sample database to get you started',
       connection: {
         type: 'postgres',
         host: process.env.POSTGRES_HOST ?? 'localhost',
@@ -468,43 +479,21 @@ export class DatabaseManager {
       returnSql: globalConfig.RETURN_SQL,
     }, tenantId);
 
-    // Copy existing agent_catalog.yaml if it exists
-    const existingCatalogPath = globalConfig.AGENT_CATALOG_PATH;
-    if (existsSync(existingCatalogPath)) {
-      const defaultCatalogPath = this.getCatalogPath(dbId);
-      try {
-        copyFileSync(existingCatalogPath, defaultCatalogPath);
-        logger.info('Copied existing agent_catalog.yaml to default database');
-      } catch (err) {
-        logger.warn({ error: err }, 'Failed to copy existing agent_catalog.yaml');
-      }
-    }
-
-    // Copy existing cube YAML files if they exist
-    // Default cube model path is cube/model/cubes relative to the project root
-    const existingCubeDir = join(dirname(this.dataDir), 'cube', 'model', 'cubes');
-    const defaultCubeDir = this.getCubeModelPath(dbId) + '/cubes';
-    if (existsSync(existingCubeDir)) {
-      try {
-        const files = readdirSync(existingCubeDir);
-        for (const file of files) {
-          if (file.endsWith('.yml') || file.endsWith('.yaml')) {
-            const srcPath = join(existingCubeDir, file);
-            const destPath = join(defaultCubeDir, file);
-            copyFileSync(srcPath, destPath);
-            logger.debug({ file }, 'Copied cube file to default database');
-          }
-        }
-        if (files.some(f => f.endsWith('.yml') || f.endsWith('.yaml'))) {
-          logger.info('Copied existing cube YAML files to default database');
-        }
-      } catch (err) {
-        logger.warn({ error: err }, 'Failed to copy existing cube files');
-      }
-    }
-
     // Activate by default (also exports connections for Cube.js)
     await this.activateDatabase(dbId, tenantId);
+
+    // Auto-introspect tables and generate cube YAMLs
+    try {
+      const { introspectAndGenerateCubes } = await import('../admin/services/auto-introspect.js');
+      const result = await introspectAndGenerateCubes(dbId);
+      logger.info(
+        { dbId, generated: result.generated.length, failed: result.failed.length },
+        'Auto-generated cubes for default database'
+      );
+    } catch (err) {
+      // Non-fatal — database is still created and active, users can generate cubes manually
+      logger.warn({ error: err, dbId }, 'Auto-introspection failed; cubes can be generated manually from Tables page');
+    }
 
     return dbId;
   }

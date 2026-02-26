@@ -176,10 +176,11 @@ function ChatInterface({ databaseId, selectedDatabaseName }: { databaseId: strin
 }
 
 export default function ChatPage() {
-  const { databaseId, activeDatabases } = useDatabaseContext();
+  const { databaseId, activeDatabases, isLoading: dbLoading, databases } = useDatabaseContext();
   const selectedDatabase = activeDatabases.find((db) => db.id === databaseId);
 
   if (!databaseId) {
+    const isInitializing = dbLoading || databases.length === 0;
     return (
       <div className="h-full flex flex-col">
         <div className="p-6 border-b bg-white">
@@ -191,16 +192,28 @@ export default function ChatPage() {
                 <p className="text-gray-600">Ask questions about your data using natural language</p>
               </div>
             </div>
-            <DatabaseSelector />
+            {!isInitializing && <DatabaseSelector />}
           </div>
         </div>
 
         <div className="flex-1 flex flex-col items-center justify-center bg-gray-50 p-6">
-          <AlertCircle className="w-16 h-16 text-yellow-500 mb-4" />
-          <h2 className="text-xl font-semibold text-gray-700 mb-2">No Database Selected</h2>
-          <p className="text-gray-500 mb-4 text-center max-w-md">
-            Select a database from the dropdown above to start chatting about your data.
-          </p>
+          {isInitializing ? (
+            <>
+              <Loader2 className="w-16 h-16 text-blue-500 mb-4 animate-spin" />
+              <h2 className="text-xl font-semibold text-gray-700 mb-2">Setting Up Your Database</h2>
+              <p className="text-gray-500 mb-4 text-center max-w-md">
+                We're preparing your database and generating schemas. This usually takes a few seconds.
+              </p>
+            </>
+          ) : (
+            <>
+              <AlertCircle className="w-16 h-16 text-yellow-500 mb-4" />
+              <h2 className="text-xl font-semibold text-gray-700 mb-2">No Database Selected</h2>
+              <p className="text-gray-500 mb-4 text-center max-w-md">
+                Select a database from the dropdown above to start chatting about your data.
+              </p>
+            </>
+          )}
         </div>
       </div>
     );

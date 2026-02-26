@@ -11,7 +11,7 @@ type FilterType = 'all' | 'measure' | 'dimension' | 'segment';
 type StatusFilter = 'all' | 'exposed' | 'hidden' | 'pii' | 'override';
 
 export default function GovernancePage() {
-  const { databaseId } = useDatabaseContext();
+  const { databaseId, isLoading: dbLoading, databases } = useDatabaseContext();
   const [selectedMember, setSelectedMember] = useState<MemberWithGovernance | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [typeFilter, setTypeFilter] = useState<FilterType>('all');
@@ -97,6 +97,7 @@ export default function GovernancePage() {
 
   // Show prompt if no database selected
   if (!databaseId) {
+    const isInitializing = dbLoading || databases.length === 0;
     return (
       <div className="p-6">
         <div className="flex items-center justify-between mb-6">
@@ -107,13 +108,23 @@ export default function GovernancePage() {
               <p className="text-gray-600">Manage member visibility and access controls</p>
             </div>
           </div>
-          <DatabaseSelector />
+          {!isInitializing && <DatabaseSelector />}
         </div>
 
         <div className="card text-center py-16">
-          <AlertCircle className="w-16 h-16 mx-auto text-yellow-500 mb-4" />
-          <h2 className="text-xl font-semibold text-gray-700 mb-2">No Database Selected</h2>
-          <p className="text-gray-500 mb-4">Select a database from the dropdown above to manage governance settings.</p>
+          {isInitializing ? (
+            <>
+              <Loader2 className="w-16 h-16 mx-auto text-blue-500 mb-4 animate-spin" />
+              <h2 className="text-xl font-semibold text-gray-700 mb-2">Setting Up Your Database</h2>
+              <p className="text-gray-500 mb-4">We're preparing your database and generating schemas. This usually takes a few seconds.</p>
+            </>
+          ) : (
+            <>
+              <AlertCircle className="w-16 h-16 mx-auto text-yellow-500 mb-4" />
+              <h2 className="text-xl font-semibold text-gray-700 mb-2">No Database Selected</h2>
+              <p className="text-gray-500 mb-4">Select a database from the dropdown above to manage governance settings.</p>
+            </>
+          )}
         </div>
       </div>
     );

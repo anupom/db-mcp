@@ -9,7 +9,7 @@ import ResultsTable from '../components/playground/ResultsTable';
 import SqlPreview from '../components/playground/SqlPreview';
 
 export default function PlaygroundPage() {
-  const { databaseId } = useDatabaseContext();
+  const { databaseId, isLoading: dbLoading, databases } = useDatabaseContext();
   const [query, setQuery] = useState<CubeQuery>({
     measures: [],
     dimensions: [],
@@ -27,7 +27,7 @@ export default function PlaygroundPage() {
     setActiveTab('results');
   }, [databaseId]);
 
-  const { data: catalogData, isLoading: catalogLoading } = useQuery({
+  const { data: catalogData, isLoading: catalogLoading, error: catalogError } = useQuery({
     queryKey: ['catalogMembers', databaseId],
     queryFn: () => catalogApi.getMembers(databaseId!),
     enabled: !!databaseId,
@@ -106,6 +106,7 @@ export default function PlaygroundPage() {
 
   // Show prompt if no database selected
   if (!databaseId) {
+    const isInitializing = dbLoading || databases.length === 0;
     return (
       <div className="p-6 h-full flex flex-col">
         <div className="flex items-center justify-between mb-6">
@@ -116,13 +117,23 @@ export default function PlaygroundPage() {
               <p className="text-gray-600">Build and test queries against the semantic layer</p>
             </div>
           </div>
-          <DatabaseSelector />
+          {!isInitializing && <DatabaseSelector />}
         </div>
 
         <div className="card text-center py-16 flex-1 flex flex-col items-center justify-center">
-          <AlertCircle className="w-16 h-16 mx-auto text-yellow-500 mb-4" />
-          <h2 className="text-xl font-semibold text-gray-700 mb-2">No Database Selected</h2>
-          <p className="text-gray-500 mb-4">Select a database from the dropdown above to start querying.</p>
+          {isInitializing ? (
+            <>
+              <Loader2 className="w-16 h-16 mx-auto text-blue-500 mb-4 animate-spin" />
+              <h2 className="text-xl font-semibold text-gray-700 mb-2">Setting Up Your Database</h2>
+              <p className="text-gray-500 mb-4">We're preparing your database and generating schemas. This usually takes a few seconds.</p>
+            </>
+          ) : (
+            <>
+              <AlertCircle className="w-16 h-16 mx-auto text-yellow-500 mb-4" />
+              <h2 className="text-xl font-semibold text-gray-700 mb-2">No Database Selected</h2>
+              <p className="text-gray-500 mb-4">Select a database from the dropdown above to start querying.</p>
+            </>
+          )}
         </div>
       </div>
     );
@@ -149,6 +160,20 @@ export default function PlaygroundPage() {
             {catalogLoading ? (
               <div className="flex-1 flex items-center justify-center">
                 <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+              </div>
+            ) : catalogError ? (
+              <div className="flex-1 flex flex-col items-center justify-center text-center p-4">
+                <AlertCircle className="w-10 h-10 text-red-500 mb-3" />
+                <p className="text-sm text-red-600 font-medium">Failed to load catalog</p>
+                <p className="text-xs text-gray-500 mt-1">{(catalogError as Error).message}</p>
+              </div>
+            ) : availableMembers.length === 0 ? (
+              <div className="flex-1 flex flex-col items-center justify-center text-center p-4">
+                <AlertCircle className="w-10 h-10 text-yellow-500 mb-3" />
+                <p className="text-sm text-gray-600 font-medium">No members available</p>
+                <p className="text-xs text-gray-500 mt-1">
+                  {(catalogData as { warning?: string })?.warning || 'Ensure Cube.js is running and cube schemas exist for this database.'}
+                </p>
               </div>
             ) : (
               <QueryBuilder

@@ -21,9 +21,15 @@ router.get('/members', async (req: Request, res: Response) => {
     if (!databaseId) return;
 
     const cubeConfig = await getCubeApiConfig(databaseId);
+    let cubeMetaError: string | undefined;
     const [catalog, cubeMeta] = await Promise.all([
       readCatalog(databaseId),
-      getCubeApiMeta(cubeConfig.cubeApiUrl, cubeConfig.jwtSecret, databaseId).catch(() => ({ cubes: [] })),
+      getCubeApiMeta(cubeConfig.cubeApiUrl, cubeConfig.jwtSecret, databaseId).catch((err) => {
+        cubeMetaError = err.message;
+        console.error(`Cube.js meta API error for database '${databaseId}': ${err.message}`);
+        console.error(`  Cube API URL: ${cubeConfig.cubeApiUrl}/meta`);
+        return { cubes: [] };
+      }),
     ]);
 
     const members = mergeWithCubeMeta(
@@ -36,6 +42,7 @@ router.get('/members', async (req: Request, res: Response) => {
       defaults: catalog.defaults,
       defaultSegments: catalog.defaultSegments,
       defaultFilters: catalog.defaultFilters,
+      ...(cubeMetaError && { warning: `Cube.js meta unavailable: ${cubeMetaError}` }),
     });
   } catch (error) {
     console.error('Error fetching members:', error);

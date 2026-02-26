@@ -170,6 +170,7 @@ export async function getCubeApiMeta(cubeApiUrl: string, jwtSecret: string, data
     headers: {
       Authorization: `Bearer ${token}`,
     },
+    signal: AbortSignal.timeout(10000),
   });
 
   if (!response.ok) {

@@ -10,22 +10,22 @@ export default defineConfig({
     },
   },
   server: {
-    port: 3001,
+    port: parseInt(process.env.FRONTEND_PORT || '3001'),
     proxy: {
       '/api': {
-        target: 'http://localhost:3000',
+        target: `http://localhost:${process.env.BACKEND_PORT || '3000'}`,
         changeOrigin: true,
       },
       '/mcp': {
-        target: 'http://localhost:3000',
+        target: `http://localhost:${process.env.BACKEND_PORT || '3000'}`,
         changeOrigin: true,
       },
       '/health': {
-        target: 'http://localhost:3000',
+        target: `http://localhost:${process.env.BACKEND_PORT || '3000'}`,
         changeOrigin: true,
       },
       '/databases': {
-        target: 'http://localhost:3000',
+        target: `http://localhost:${process.env.BACKEND_PORT || '3000'}`,
         changeOrigin: true,
       },
     },

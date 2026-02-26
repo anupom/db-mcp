@@ -375,14 +375,6 @@ export const databasesApi = {
     }>(`/databases/${id}/deactivate`, {
       method: 'POST',
     }),
-
-  initializeDefault: () =>
-    fetchApi<{ success: boolean; databaseId: string }>('/databases/initialize-default', {
-      method: 'POST',
-    }),
-
-  getCubeMeta: (id: string) =>
-    fetchApi<{ cubes: Array<{ name: string; title: string }> }>(`/cubes?database=${id}`),
 };
 
 // Tenant API

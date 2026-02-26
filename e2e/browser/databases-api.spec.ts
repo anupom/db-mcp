@@ -38,13 +38,13 @@ test.describe('Databases API', () => {
   });
 
   test('CRUD lifecycle for a test database', async () => {
-    const testId = `test-e2e-${Date.now()}`;
+    const testSlug = `test-e2e-${Date.now()}`;
 
-    // Create
+    // Create — the returned id may be tenant-scoped (slug + hash) in SaaS mode
     const create = await authenticatedFetch(page, '/api/databases', {
       method: 'POST',
       body: JSON.stringify({
-        id: testId,
+        id: testSlug,
         name: 'E2E Test DB',
         description: 'Created by e2e test',
         connection: {
@@ -58,18 +58,19 @@ test.describe('Databases API', () => {
       }),
     });
     expect(create.status).toBe(201);
-    expect(create.body.database.id).toBe(testId);
+    const dbId = create.body.database.id;
+    expect(dbId).toContain(testSlug);
     expect(create.body.database.name).toBe('E2E Test DB');
     expect(create.body.database.status).toBe('inactive');
 
     // Read — password should be masked
-    const get = await authenticatedFetch(page, `/api/databases/${testId}`);
+    const get = await authenticatedFetch(page, `/api/databases/${dbId}`);
     expect(get.status).toBe(200);
-    expect(get.body.database.id).toBe(testId);
+    expect(get.body.database.id).toBe(dbId);
     expect(get.body.database.connection.password).toBe('********');
 
     // Update
-    const update = await authenticatedFetch(page, `/api/databases/${testId}`, {
+    const update = await authenticatedFetch(page, `/api/databases/${dbId}`, {
       method: 'PUT',
       body: JSON.stringify({ name: 'Updated E2E DB' }),
     });
@@ -78,16 +79,16 @@ test.describe('Databases API', () => {
 
     // List includes it
     const list = await authenticatedFetch(page, '/api/databases');
-    expect(list.body.databases.some((d: { id: string }) => d.id === testId)).toBe(true);
+    expect(list.body.databases.some((d: { id: string }) => d.id === dbId)).toBe(true);
 
     // Delete
-    const del = await authenticatedFetch(page, `/api/databases/${testId}`, {
+    const del = await authenticatedFetch(page, `/api/databases/${dbId}`, {
       method: 'DELETE',
     });
     expect(del.status).toBe(200);
 
     // Verify gone
-    const verify = await authenticatedFetch(page, `/api/databases/${testId}`);
+    const verify = await authenticatedFetch(page, `/api/databases/${dbId}`);
     expect(verify.status).toBe(404);
   });
 

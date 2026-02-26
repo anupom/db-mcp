@@ -29,13 +29,36 @@ export function generateSlug(orgId: string): string {
 }
 
 /**
+ * Derive a slug from an org name.
+ * E.g. "Acme Corp" → "acme-corp", "My Great Org!" → "my-great-org"
+ */
+export function slugifyName(name: string): string | null {
+  const slug = name
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+
+  if (!slug) return null;
+
+  const result = /^[a-z]/.test(slug) ? slug : `org-${slug}`;
+  const truncated = result.slice(0, 48).replace(/-$/, ''); // trim trailing hyphen from truncation
+
+  return isValidSlug(truncated) ? truncated : null;
+}
+
+/**
  * Generate a unique slug by appending numeric suffixes on collision.
+ * Prefers `preferredSlug` (e.g. from Clerk org slug/name) over the org ID fallback.
  */
 export function generateUniqueSlug(
   orgId: string,
-  slugExists: (slug: string) => boolean
+  slugExists: (slug: string) => boolean,
+  preferredSlug?: string | null
 ): string {
-  const base = generateSlug(orgId);
+  const base = preferredSlug && isValidSlug(preferredSlug)
+    ? preferredSlug
+    : generateSlug(orgId);
 
   if (!slugExists(base)) {
     return base;

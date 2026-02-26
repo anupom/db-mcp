@@ -40,6 +40,11 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
     queryKey: ['databases', orgId],
     queryFn: () => databasesApi.list(),
     staleTime: 30000,
+    // Poll every 2s while no active databases exist (waiting for auto-initialization)
+    refetchInterval: (query) => {
+      const dbs = query.state.data?.databases || [];
+      return dbs.some((db) => db.status === 'active') ? false : 2000;
+    },
   });
 
   const databases = data?.databases || [];

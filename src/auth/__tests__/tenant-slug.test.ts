@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isValidSlug, generateSlug, generateUniqueSlug } from '../tenant-slug.js';
+import { isValidSlug, generateSlug, generateUniqueSlug, slugifyName } from '../tenant-slug.js';
 
 describe('isValidSlug', () => {
   it('accepts valid slugs', () => {
@@ -59,6 +59,32 @@ describe('generateSlug', () => {
   });
 });
 
+describe('slugifyName', () => {
+  it('converts org name to slug', () => {
+    expect(slugifyName('Acme Corp')).toBe('acme-corp');
+  });
+
+  it('handles special characters', () => {
+    expect(slugifyName('My Great Org!')).toBe('my-great-org');
+  });
+
+  it('prefixes with org- if starts with number', () => {
+    expect(slugifyName('123 Corp')).toBe('org-123-corp');
+  });
+
+  it('returns null for names that produce invalid slugs', () => {
+    expect(slugifyName('ab')).toBeNull(); // too short
+    expect(slugifyName('!!')).toBeNull(); // no valid chars → "org-" → too short
+  });
+
+  it('truncates long names to 48 chars', () => {
+    const longName = 'a'.repeat(100);
+    const result = slugifyName(longName);
+    expect(result).not.toBeNull();
+    expect(result!.length).toBeLessThanOrEqual(48);
+  });
+});
+
 describe('generateUniqueSlug', () => {
   it('returns base slug when no collision', () => {
     const slug = generateUniqueSlug('org_acme', () => false);
@@ -75,5 +101,26 @@ describe('generateUniqueSlug', () => {
     const taken = new Set(['org-acme', 'org-acme-2', 'org-acme-3']);
     const slug = generateUniqueSlug('org_acme', (s) => taken.has(s));
     expect(slug).toBe('org-acme-4');
+  });
+
+  it('uses preferredSlug when provided and valid', () => {
+    const slug = generateUniqueSlug('org_abc123', () => false, 'acme-corp');
+    expect(slug).toBe('acme-corp');
+  });
+
+  it('falls back to orgId slug when preferredSlug is invalid', () => {
+    const slug = generateUniqueSlug('org_acme', () => false, 'ab'); // too short
+    expect(slug).toBe('org-acme');
+  });
+
+  it('falls back to orgId slug when preferredSlug is null', () => {
+    const slug = generateUniqueSlug('org_acme', () => false, null);
+    expect(slug).toBe('org-acme');
+  });
+
+  it('handles collision on preferredSlug with suffix', () => {
+    const taken = new Set(['acme-corp']);
+    const slug = generateUniqueSlug('org_abc123', (s) => taken.has(s), 'acme-corp');
+    expect(slug).toBe('acme-corp-2');
   });
 });

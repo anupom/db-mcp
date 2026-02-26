@@ -2,7 +2,8 @@ import { Request, Response, NextFunction, RequestHandler } from 'express';
 import { isAuthEnabled } from './config.js';
 import type { TenantContext } from './types.js';
 import { getTenantStore } from './tenant-store.js';
-import { generateUniqueSlug } from './tenant-slug.js';
+import { generateUniqueSlug, slugifyName } from './tenant-slug.js';
+import { getLogger } from '../utils/logger.js';
 
 // Re-export to ensure type augmentation is loaded
 export type { TenantContext } from './types.js';
@@ -11,6 +12,7 @@ export type { TenantContext } from './types.js';
 let clerkModule: {
   clerkMiddleware: () => RequestHandler;
   getAuth: (req: Request) => { userId?: string; orgId?: string; orgRole?: string } | null;
+  clerkClient: { organizations: { getOrganization: (params: { organizationId: string }) => Promise<{ id: string; slug: string; name: string }> } };
 } | null = null;
 
 async function loadClerk() {
@@ -19,9 +21,24 @@ async function loadClerk() {
     clerkModule = {
       clerkMiddleware: mod.clerkMiddleware as () => RequestHandler,
       getAuth: mod.getAuth as (req: Request) => { userId?: string; orgId?: string; orgRole?: string } | null,
+      clerkClient: mod.clerkClient as NonNullable<typeof clerkModule>['clerkClient'],
     };
   }
   return clerkModule;
+}
+
+/**
+ * Fetch org slug and name from Clerk API. Returns null on failure (non-blocking).
+ */
+async function fetchClerkOrgDetails(orgId: string): Promise<{ slug: string; name: string } | null> {
+  try {
+    if (!clerkModule) return null;
+    const org = await clerkModule.clerkClient.organizations.getOrganization({ organizationId: orgId });
+    return { slug: org.slug, name: org.name };
+  } catch (err) {
+    getLogger().warn({ error: err, orgId }, 'Failed to fetch Clerk org details for slug generation');
+    return null;
+  }
 }
 
 /**
@@ -147,18 +164,38 @@ export function ensureTenant(): RequestHandler {
       let tenant = store.getById(req.tenant.tenantId);
 
       if (!tenant) {
+        let isNewTenant = false;
         try {
+          // Fetch org details from Clerk to get a meaningful slug and name
+          const orgDetails = await fetchClerkOrgDetails(req.tenant.tenantId);
+          const preferredSlug = orgDetails?.slug
+            || (orgDetails?.name ? slugifyName(orgDetails.name) : null);
+
           const slug = generateUniqueSlug(
             req.tenant.tenantId,
-            (s) => store.slugExists(s)
+            (s) => store.slugExists(s),
+            preferredSlug
           );
-          tenant = store.create(req.tenant.tenantId, slug);
+          tenant = store.create(req.tenant.tenantId, slug, orgDetails?.name ?? undefined);
+          isNewTenant = true;
         } catch (err) {
           // Handle race: concurrent request already created this tenant
           if (err instanceof Error && (err.message.includes('UNIQUE constraint') || err.message.includes('PRIMARY'))) {
             tenant = store.getById(req.tenant.tenantId);
           }
           if (!tenant) throw err;
+        }
+
+        // Fire-and-forget: auto-initialize default database for new tenants
+        if (isNewTenant && req.tenant.tenantId) {
+          const tenantId = req.tenant.tenantId;
+          import('../registry/manager.js').then(({ getDatabaseManager }) => {
+            getDatabaseManager().initializeDefaultDatabase(tenantId).catch((err) => {
+              getLogger().warn({ error: err, tenantId }, 'Failed to auto-initialize default database for new tenant');
+            });
+          }).catch((err) => {
+            getLogger().warn({ error: err, tenantId }, 'Failed to import registry manager for auto-initialization');
+          });
         }
       }
 

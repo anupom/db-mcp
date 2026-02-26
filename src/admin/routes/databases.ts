@@ -229,19 +229,4 @@ router.post('/:id/deactivate', async (req: Request, res: Response) => {
   }
 });
 
-// POST /api/databases/initialize-default - Initialize default database
-router.post('/initialize-default', async (req: Request, res: Response) => {
-  try {
-    const manager = getDatabaseManager();
-
-    const tenantId = req.tenant?.tenantId;
-    const databaseId = await manager.initializeDefaultDatabase(tenantId);
-    res.json({ success: true, message: 'Default database initialized', databaseId });
-  } catch (error) {
-    console.error('Error initializing default database:', error);
-    const message = error instanceof Error ? error.message : 'Failed to initialize default database';
-    res.status(500).json({ error: message });
-  }
-});
-
 export default router;

@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Plug, ChevronDown, ChevronRight, Copy, Check, Loader2, AlertTriangle, AlertCircle, Server, Terminal, Globe } from 'lucide-react';
+import { Plug, ChevronDown, ChevronRight, Copy, Check, Loader2, AlertTriangle, AlertCircle, Server, Terminal, Globe, Pencil } from 'lucide-react';
 import { mcpApi, type MCPTool } from '../api/client';
 import { useDatabaseContext } from '../context/DatabaseContext';
 import { useTenantSlug } from '../hooks/useTenantSlug';
@@ -66,12 +66,55 @@ function ToolCard({ tool, isExpanded, onToggle }: { tool: MCPTool; isExpanded: b
 }
 
 export default function MCPPage() {
-  const { databaseId, activeDatabases } = useDatabaseContext();
-  const { slug: tenantSlug } = useTenantSlug();
+  const { databaseId, activeDatabases, isLoading: dbLoading, databases } = useDatabaseContext();
+  const { slug: tenantSlug, updateSlug, isUpdating, updateError } = useTenantSlug();
   const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set(['catalog.search']));
   const [copiedSnippet, setCopiedSnippet] = useState(false);
   const [copiedCurl, setCopiedCurl] = useState(false);
   const [copiedEndpoint, setCopiedEndpoint] = useState(false);
+
+  // Slug editing state
+  const [editingSlug, setEditingSlug] = useState(false);
+  const [slugDraft, setSlugDraft] = useState('');
+  const [slugError, setSlugError] = useState<string | null>(null);
+  const slugInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (editingSlug && slugInputRef.current) {
+      slugInputRef.current.focus();
+      slugInputRef.current.select();
+    }
+  }, [editingSlug]);
+
+  const startEditingSlug = () => {
+    setSlugDraft(tenantSlug ?? '');
+    setSlugError(null);
+    setEditingSlug(true);
+  };
+
+  const cancelEditingSlug = () => {
+    setEditingSlug(false);
+    setSlugError(null);
+  };
+
+  const saveSlug = async () => {
+    const trimmed = slugDraft.trim().toLowerCase();
+    if (!trimmed || trimmed === tenantSlug) {
+      cancelEditingSlug();
+      return;
+    }
+    if (!/^[a-z][a-z0-9-]{2,47}$/.test(trimmed)) {
+      setSlugError('Must be 3-48 chars, start with a letter, lowercase alphanumeric and hyphens only.');
+      return;
+    }
+    try {
+      await updateSlug(trimmed);
+      setEditingSlug(false);
+      setSlugError(null);
+    } catch (err) {
+      setSlugError(err instanceof Error ? err.message : 'Failed to update slug');
+    }
+  };
 
   const selectedDatabase = activeDatabases.find((db) => db.id === databaseId);
 
@@ -146,6 +189,7 @@ export default function MCPPage() {
 
   // Show prompt if no database selected
   if (!databaseId) {
+    const isInitializing = dbLoading || databases.length === 0;
     return (
       <div className="p-6">
         <div className="flex items-center justify-between mb-6">
@@ -156,13 +200,23 @@ export default function MCPPage() {
               <p className="text-gray-600">Tool definitions and integration information</p>
             </div>
           </div>
-          <DatabaseSelector />
+          {!isInitializing && <DatabaseSelector />}
         </div>
 
         <div className="card text-center py-16">
-          <AlertCircle className="w-16 h-16 mx-auto text-yellow-500 mb-4" />
-          <h2 className="text-xl font-semibold text-gray-700 mb-2">No Database Selected</h2>
-          <p className="text-gray-500 mb-4">Select a database from the dropdown above to view MCP endpoint information.</p>
+          {isInitializing ? (
+            <>
+              <Loader2 className="w-16 h-16 mx-auto text-blue-500 mb-4 animate-spin" />
+              <h2 className="text-xl font-semibold text-gray-700 mb-2">Setting Up Your Database</h2>
+              <p className="text-gray-500 mb-4">We're preparing your database and generating schemas. This usually takes a few seconds.</p>
+            </>
+          ) : (
+            <>
+              <AlertCircle className="w-16 h-16 mx-auto text-yellow-500 mb-4" />
+              <h2 className="text-xl font-semibold text-gray-700 mb-2">No Database Selected</h2>
+              <p className="text-gray-500 mb-4">Select a database from the dropdown above to view MCP endpoint information.</p>
+            </>
+          )}
         </div>
       </div>
     );
@@ -270,6 +324,16 @@ export default function MCPPage() {
                 <code className="flex-1 bg-gray-100 px-3 py-2 rounded-lg font-mono text-sm">
                   {fullEndpoint}
                 </code>
+                {tenantSlug && (
+                  <button
+                    onClick={startEditingSlug}
+                    className="btn btn-secondary text-xs py-2 px-3 flex items-center gap-1"
+                    title="Customize organization slug in URL"
+                  >
+                    <Pencil className="w-3 h-3" />
+                    Edit slug
+                  </button>
+                )}
                 <button
                   onClick={copyEndpoint}
                   className="btn btn-secondary text-xs py-2 px-3 flex items-center gap-1"
@@ -278,6 +342,56 @@ export default function MCPPage() {
                   {copiedEndpoint ? 'Copied' : 'Copy'}
                 </button>
               </div>
+
+              {/* Slug editor */}
+              {editingSlug && (
+                <div className="mt-3 p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Organization slug
+                  </label>
+                  <p className="text-xs text-gray-500 mb-2">
+                    This slug appears in your MCP endpoint URLs. Changing it will update all endpoint URLs for your organization.
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-gray-400 font-mono">/mcp/</span>
+                    <input
+                      ref={slugInputRef}
+                      type="text"
+                      value={slugDraft}
+                      onChange={(e) => {
+                        setSlugDraft(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''));
+                        setSlugError(null);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') saveSlug();
+                        if (e.key === 'Escape') cancelEditingSlug();
+                      }}
+                      className="flex-1 px-2 py-1 border border-gray-300 rounded text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="my-org"
+                      maxLength={48}
+                    />
+                    <span className="text-sm text-gray-400 font-mono">/{databaseId}</span>
+                    <button
+                      onClick={saveSlug}
+                      disabled={isUpdating}
+                      className="btn btn-primary text-xs py-1 px-3"
+                    >
+                      {isUpdating ? 'Saving...' : 'Save'}
+                    </button>
+                    <button
+                      onClick={cancelEditingSlug}
+                      className="btn btn-secondary text-xs py-1 px-3"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                  {(slugError || updateError) && (
+                    <p className="text-xs text-red-600 mt-1">
+                      {slugError || (updateError instanceof Error ? updateError.message : 'Failed to update')}
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Connection Info */}

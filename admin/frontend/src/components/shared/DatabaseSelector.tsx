@@ -98,9 +98,6 @@ export default function DatabaseSelector() {
                   <p className={`text-sm font-medium ${db.id === databaseId ? 'text-blue-700' : 'text-gray-700'}`}>
                     {db.name}
                   </p>
-                  {db.description && (
-                    <p className="text-xs text-gray-500 truncate">{db.description}</p>
-                  )}
                 </div>
                 {db.id === databaseId && (
                   <Check className="w-4 h-4 text-blue-600" />
