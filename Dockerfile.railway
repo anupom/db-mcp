@@ -18,9 +18,9 @@ RUN rm -rf node_modules && npm ci --omit=dev
 # Stage 2: Runtime — cubejs/cube:latest (Node 22)
 FROM cubejs/cube:latest
 
-# Install supervisord
+# Install supervisord (cubejs/cube is Debian-based, not Alpine)
 USER root
-RUN apk add --no-cache supervisor
+RUN apt-get update && apt-get install -y --no-install-recommends supervisor && rm -rf /var/lib/apt/lists/*
 
 # Copy compiled Express backend
 WORKDIR /app
