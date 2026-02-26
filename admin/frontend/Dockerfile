@@ -12,6 +12,8 @@ FROM nginx:alpine
 
 COPY --from=build /app/dist /usr/share/nginx/html
 COPY nginx.conf.template /etc/nginx/templates/default.conf.template
+COPY docker-entrypoint.sh /custom-entrypoint.sh
+RUN chmod +x /custom-entrypoint.sh
 
 # Default backend host for Docker Compose; override for Railway
 ENV BACKEND_HOST=db-mcp:3000
@@ -20,6 +22,6 @@ ENV PORT=80
 
 EXPOSE 80
 
-# nginx:alpine image auto-runs envsubst on /etc/nginx/templates/*.template
-# and outputs to /etc/nginx/conf.d/ before starting nginx
+# Custom entrypoint extracts DNS resolver, then delegates to nginx entrypoint
+ENTRYPOINT ["/custom-entrypoint.sh"]
 CMD ["nginx", "-g", "daemon off;"]
