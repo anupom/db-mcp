@@ -4,49 +4,6 @@ server {
     root /usr/share/nginx/html;
     index index.html;
 
-    # Resolve upstream at request time (not startup) so nginx starts
-    # even if the backend isn't ready yet. Railway internal DNS.
-    resolver ${DNS_RESOLVER} valid=10s;
-    set $backend http://${BACKEND_HOST};
-
-    # API proxy — use $backend without URI path; with variables nginx
-    # passes the original request URI as-is (no path rewriting)
-    location /api/ {
-        proxy_pass $backend;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_cache_bypass $http_upgrade;
-        proxy_read_timeout 300s;
-    }
-
-    # MCP proxy (SSE support)
-    location /mcp/ {
-        proxy_pass $backend;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection '';
-        proxy_set_header Host $host;
-        proxy_cache_bypass $http_upgrade;
-        proxy_buffering off;
-        proxy_read_timeout 86400s;
-    }
-
-    # Health check proxy
-    location /health {
-        proxy_pass $backend;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-    }
-
-    # Databases API proxy (top-level route)
-    location /databases {
-        proxy_pass $backend;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-    }
-
     # SPA fallback
     location / {
         try_files $uri $uri/ /index.html;
