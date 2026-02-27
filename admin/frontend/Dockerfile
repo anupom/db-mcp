@@ -2,6 +2,8 @@ FROM node:20-alpine AS build
 
 WORKDIR /app
 
+# Cache-bust: force Railway to rebuild instead of replaying stale cache
+ARG CACHEBUST=1
 COPY package*.json ./
 RUN npm install
 
