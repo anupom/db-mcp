@@ -2,18 +2,12 @@ import * as yaml from 'yaml';
 import * as fs from 'fs/promises';
 import { z } from 'zod';
 import { getDatabaseManager } from '../../registry/manager.js';
-import { getConfig } from '../../config.js';
-
-// Default fallback path
-const DEFAULT_CATALOG_PATH = process.env.AGENT_CATALOG_PATH || './agent_catalog.yaml';
 
 // Get catalog path for a database
 async function getCatalogPath(databaseId: string = 'default'): Promise<string> {
   const manager = getDatabaseManager();
   if (!manager) {
-    // Fallback to environment variable
-    console.warn('Registry not available, falling back to environment variable for catalog path');
-    return DEFAULT_CATALOG_PATH;
+    throw new Error('Registry not available');
   }
 
   const config = manager.getDatabase(databaseId);

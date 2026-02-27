@@ -23,9 +23,6 @@ const configSchema = z.object({
   // Logging
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']).default('info'),
 
-  // Catalog
-  AGENT_CATALOG_PATH: z.string().optional().default('agent_catalog.yaml'),
-
   // MCP transport configuration
   MCP_STDIO_ENABLED: z.string().optional().transform(v => v !== 'false').default('true'),
   MCP_HTTP_ENABLED: z.string().optional().transform(v => v === 'true').default('false'),

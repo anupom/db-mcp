@@ -34,8 +34,10 @@ export class CatalogIndex {
   private databaseId?: string;
 
   constructor(config: CatalogIndexConfig, cubeClient: CubeClient) {
-    const globalConfig = getConfig();
-    this.catalogPath = config.catalogPath ?? globalConfig.AGENT_CATALOG_PATH;
+    if (!config.catalogPath) {
+      throw new Error('catalogPath is required');
+    }
+    this.catalogPath = config.catalogPath;
     this.cubeClient = cubeClient;
     this.databaseId = config.databaseId;
 
