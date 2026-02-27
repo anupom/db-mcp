@@ -1,4 +1,6 @@
-const API_BASE = '/api';
+import { BACKEND_URL } from '../config';
+
+const API_BASE = `${BACKEND_URL}/api`;
 
 // Module-level token getter for auth integration
 let getTokenFn: (() => Promise<string | null>) | null = null;

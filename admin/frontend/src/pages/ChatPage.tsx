@@ -3,6 +3,7 @@ import { useChat } from '@ai-sdk/react';
 import { DefaultChatTransport } from 'ai';
 import { MessageCircle, Send, Loader2, AlertCircle, Trash2 } from 'lucide-react';
 import { useDatabaseContext } from '../context/DatabaseContext';
+import { BACKEND_URL } from '../config';
 import DatabaseSelector from '../components/shared/DatabaseSelector';
 import ChatMessage from '../components/chat/ChatMessage';
 
@@ -18,7 +19,7 @@ function ChatInterface({ databaseId, selectedDatabaseName }: { databaseId: strin
     setMessages,
   } = useChat({
     transport: new DefaultChatTransport({
-      api: `/api/chat?database=${databaseId}`,
+      api: `${BACKEND_URL}/api/chat?database=${databaseId}`,
     }),
   });
 

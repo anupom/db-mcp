@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, ReactNode, useMemo } from 'react';
+import { BACKEND_URL } from '../config';
 
 interface AuthConfig {
   authEnabled: boolean;
@@ -24,7 +25,7 @@ export function AuthConfigProvider({ children }: { children: ReactNode }) {
 
   const loadConfig = () => {
     setConfig(prev => ({ ...prev, error: null }));
-    fetch('/api/config')
+    fetch(`${BACKEND_URL}/api/config`)
       .then(res => {
         if (!res.ok) throw new Error(`Config endpoint returned ${res.status}`);
         return res.json();
