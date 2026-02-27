@@ -3,6 +3,8 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import express from 'express';
 import cors from 'cors';
+import path from 'path';
+import fs from 'fs';
 import { getLogger } from '../utils/logger.js';
 import { getConfig } from '../config.js';
 import { getDatabaseManager } from '../registry/manager.js';
@@ -151,18 +153,9 @@ export class McpServer {
     // Database-specific transports: Map<databaseId, Map<sessionId, transport>>
     const dbTransports = new Map<string, Map<string, StreamableHTTPServerTransport>>();
 
-    // Root endpoint - show available APIs
-    app.get('/', (_req, res) => {
-      res.json({
-        name: 'DB-MCP Server',
-        version: '1.0.0',
-        endpoints: {
-          health: '/health',
-          mcp: '/mcp/:databaseId',
-          api: '/api',
-        },
-      });
-    });
+    // Serve static frontend if public/ directory exists (Docker build)
+    const publicDir = path.join(process.cwd(), 'public');
+    const hasPublicDir = fs.existsSync(publicDir);
 
     // Health check endpoint (enhanced with database check)
     app.get('/health', async (req, res) => {
@@ -224,13 +217,21 @@ export class McpServer {
     // Database-specific MCP endpoint (self-hosted + internal server-to-server)
     app.all('/mcp/:databaseId', validateMcpApiKey(), handleMcpEndpoint);
 
+    // Serve static frontend assets and SPA fallback
+    if (hasPublicDir) {
+      app.use(express.static(publicDir));
+      app.get('*', (_req, res) => {
+        res.sendFile(path.join(publicDir, 'index.html'));
+      });
+    }
+
     // Error handling
     app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
       this.logger.error({ error: err }, 'Unhandled error');
       res.status(500).json({ error: 'Internal server error' });
     });
 
-    // 404 handler
+    // 404 handler (only reached when no public dir)
     app.use((_req, res) => {
       res.status(404).json({ error: 'Not found' });
     });

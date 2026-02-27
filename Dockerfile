@@ -1,4 +1,15 @@
-# Build stage
+# Frontend build stage
+FROM node:20-alpine AS frontend-builder
+
+WORKDIR /app/admin/frontend
+
+COPY admin/frontend/package.json admin/frontend/package-lock.json* ./
+RUN npm ci
+
+COPY admin/frontend/ .
+RUN npm run build
+
+# Backend build stage
 FROM node:20-alpine AS builder
 
 WORKDIR /app
@@ -20,7 +31,7 @@ COPY package.json package-lock.json* ./
 RUN npm ci --omit=dev
 
 COPY --from=builder /app/dist ./dist
-COPY agent_catalog.yaml ./
+COPY --from=frontend-builder /app/admin/frontend/dist ./public
 
 ENV NODE_ENV=production
 

@@ -58,25 +58,15 @@ services:
       MCP_HTTP_HOST: 0.0.0.0
       DATA_DIR: /app/data
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    ports:
+      - "3000:3000"
     volumes:
       - ./data:/app/data
-      - ./agent_catalog.yaml:/app/agent_catalog.yaml
-      - ./cube:/app/cube
     depends_on:
       postgres:
         condition: service_healthy
       cube:
         condition: service_healthy
-    restart: unless-stopped
-
-  admin-frontend:
-    build: ./admin/frontend
-    ports:
-      - "3000:80"
-    volumes:
-      - ./admin/frontend/nginx.conf:/etc/nginx/conf.d/default.conf
-    depends_on:
-      - db-mcp
     restart: unless-stopped
 
 volumes:
