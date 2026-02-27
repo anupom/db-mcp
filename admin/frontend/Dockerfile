@@ -2,8 +2,6 @@ FROM node:20-alpine AS build
 
 WORKDIR /app
 
-# Cache-bust: force Railway to rebuild instead of replaying stale cache
-ARG CACHEBUST=1
 COPY package*.json ./
 RUN npm install
 
@@ -19,7 +17,7 @@ FROM nginx:alpine
 COPY --from=build /app/dist /usr/share/nginx/html
 
 # Inline nginx config (avoids needing a separate template file in the build context)
-RUN printf 'server {\n\
+RUN mkdir -p /etc/nginx/templates && printf 'server {\n\
     listen ${PORT};\n\
     server_name localhost;\n\
     root /usr/share/nginx/html;\n\
