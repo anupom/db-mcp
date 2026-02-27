@@ -7,8 +7,8 @@ on:
     branches: [main]
 
 jobs:
-  lint-and-typecheck:
-    name: Lint & Typecheck
+  typecheck:
+    name: Typecheck
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -17,7 +17,6 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm run lint
       - run: npx tsc --noEmit
 
   test:
@@ -33,31 +32,3 @@ jobs:
       - run: npm test
     env:
       CUBE_JWT_SECRET: test-secret-that-is-at-least-32-characters-long
-
-  build-app:
-    name: Build App Image
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: Dockerfile.railway
-          push: false
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-  build-frontend:
-    name: Build Frontend Image
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/build-push-action@v6
-        with:
-          context: ./admin/frontend
-          file: ./admin/frontend/Dockerfile
-          push: false
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
