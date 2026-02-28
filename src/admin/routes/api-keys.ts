@@ -6,7 +6,7 @@ import { requireOrgAdmin } from '../../auth/middleware.js';
 const router = Router();
 
 // GET /api/api-keys - List org's API keys (never returns raw key or hash)
-router.get('/', (req: Request, res: Response) => {
+router.get('/', async (req: Request, res: Response) => {
   if (!isAuthEnabled()) {
     res.status(404).json({ error: 'API keys are not available in self-hosted mode' });
     return;
@@ -19,12 +19,12 @@ router.get('/', (req: Request, res: Response) => {
   }
 
   const store = getApiKeyStore();
-  const keys = store.listByTenant(tenantId);
+  const keys = await store.listByTenant(tenantId);
   res.json({ keys });
 });
 
 // POST /api/api-keys - Create a new API key (requires org admin)
-router.post('/', requireOrgAdmin(), (req: Request, res: Response) => {
+router.post('/', requireOrgAdmin(), async (req: Request, res: Response) => {
   if (!isAuthEnabled()) {
     res.status(404).json({ error: 'API keys are not available in self-hosted mode' });
     return;
@@ -48,12 +48,12 @@ router.post('/', requireOrgAdmin(), (req: Request, res: Response) => {
   }
 
   const store = getApiKeyStore();
-  const { apiKey, rawKey } = store.create(tenantId, name.trim(), userId);
+  const { apiKey, rawKey } = await store.create(tenantId, name.trim(), userId);
   res.status(201).json({ key: apiKey, rawKey });
 });
 
 // DELETE /api/api-keys/:id - Revoke an API key (requires org admin)
-router.delete('/:id', requireOrgAdmin(), (req: Request, res: Response) => {
+router.delete('/:id', requireOrgAdmin(), async (req: Request, res: Response) => {
   if (!isAuthEnabled()) {
     res.status(404).json({ error: 'API keys are not available in self-hosted mode' });
     return;
@@ -67,7 +67,7 @@ router.delete('/:id', requireOrgAdmin(), (req: Request, res: Response) => {
 
   const { id } = req.params;
   const store = getApiKeyStore();
-  const revoked = store.revoke(id, tenantId);
+  const revoked = await store.revoke(id, tenantId);
 
   if (!revoked) {
     res.status(404).json({ error: 'API key not found or already revoked' });

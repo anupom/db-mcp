@@ -40,7 +40,7 @@ export class McpServer {
 
     // Get database config (tenant-scoped when tenantId is provided)
     const manager = getDatabaseManager();
-    const config = manager.getDatabase(databaseId, tenantId);
+    const config = await manager.getDatabase(databaseId, tenantId);
 
     if (!config) {
       throw new Error(`Database '${databaseId}' not found`);

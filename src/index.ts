@@ -2,6 +2,8 @@ import 'dotenv/config';
 import { loadConfig, getConfig } from './config.js';
 import { McpServer } from './mcp/server.js';
 import { getLogger } from './utils/logger.js';
+import { initializeDatabaseStore } from './registry/pg-store.js';
+import { syncAllToDisk } from './registry/fs-sync.js';
 import { getDatabaseManager } from './registry/manager.js';
 import { isAuthEnabled } from './auth/config.js';
 
@@ -21,17 +23,21 @@ async function main(): Promise<void> {
       'Starting DB-MCP server'
     );
 
+    // Initialize PostgreSQL store (creates dbmcp schema + tables)
+    await initializeDatabaseStore(config.ADMIN_SECRET);
+
     // Auto-initialize default database if none exist (self-hosted mode only)
     const manager = getDatabaseManager();
-    const databases = manager.listDatabases();
+    const databases = await manager.listDatabases();
     if (databases.length === 0 && !isAuthEnabled()) {
       logger.info('No databases configured, initializing default from environment');
       await manager.initializeDefaultDatabase();
     } else {
       logger.info({ count: databases.length }, 'Found existing databases');
-      // Export connections for Cube.js on startup (for existing databases)
-      await manager.exportConnectionsForCube();
     }
+
+    // Sync all data from PG to filesystem for Cube.js
+    await syncAllToDisk();
 
     const server = new McpServer();
     await server.start();

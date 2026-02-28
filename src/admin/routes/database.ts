@@ -8,7 +8,7 @@ const router = Router();
 // Query param: ?database=<id> (default: "default")
 router.get('/tables', async (req: Request, res: Response) => {
   try {
-    const databaseId = verifyDatabaseAccess(req, res);
+    const databaseId = await verifyDatabaseAccess(req, res);
     if (!databaseId) return;
 
     const tables = await getTables(databaseId);
@@ -24,7 +24,7 @@ router.get('/tables', async (req: Request, res: Response) => {
 // Query param: ?database=<id> (default: "default")
 router.get('/tables/:name', async (req: Request, res: Response) => {
   try {
-    const databaseId = verifyDatabaseAccess(req, res);
+    const databaseId = await verifyDatabaseAccess(req, res);
     if (!databaseId) return;
 
     const { name } = req.params;
@@ -41,7 +41,7 @@ router.get('/tables/:name', async (req: Request, res: Response) => {
 // Query param: ?database=<id> (default: "default")
 router.get('/tables/:name/sample', async (req: Request, res: Response) => {
   try {
-    const databaseId = verifyDatabaseAccess(req, res);
+    const databaseId = await verifyDatabaseAccess(req, res);
     if (!databaseId) return;
 
     const { name } = req.params;

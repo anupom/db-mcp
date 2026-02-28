@@ -1,8 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Request, Response, NextFunction } from 'express';
-import { mkdtempSync, rmSync } from 'fs';
-import { join } from 'path';
-import { tmpdir } from 'os';
+import pg from 'pg';
 
 // --- Mocks ---
 
@@ -24,6 +22,17 @@ vi.mock('../../utils/logger.js', () => {
   return { getLogger: () => noopLogger };
 });
 
+vi.mock('../../config.js', async () => {
+  return {
+    isAuthEnabled: () => authEnabled,
+    getConfig: () => ({
+      DATA_DIR: '/tmp',
+      CUBE_JWT_SECRET: 'test-secret-that-is-at-least-32-characters-long',
+      LOG_LEVEL: 'silent',
+    }),
+  };
+});
+
 // Mock registry manager (fire-and-forget DB init)
 const mockInitializeDefaultDatabase = vi.fn().mockResolvedValue('default-abc');
 vi.mock('../../registry/manager.js', () => ({
@@ -32,7 +41,7 @@ vi.mock('../../registry/manager.js', () => ({
   }),
 }));
 
-// Mock Clerk module — we'll inject it via dynamic import mock
+// Mock Clerk module
 const mockGetOrganization = vi.fn();
 vi.mock('@clerk/express', () => ({
   clerkMiddleware: () => (_req: unknown, _res: unknown, next: () => void) => next(),
@@ -44,24 +53,12 @@ vi.mock('@clerk/express', () => ({
   },
 }));
 
-// Real tenant store and slug (no mock — use actual SQLite in temp dir)
-let tmpDir: string;
-
-// We need to mock getConfig for the tenant store's DATA_DIR
-vi.mock('../../config.js', async () => {
-  return {
-    isAuthEnabled: () => authEnabled,
-    getConfig: () => ({
-      DATA_DIR: tmpDir ?? '/tmp',
-      CUBE_JWT_SECRET: 'test-secret-that-is-at-least-32-characters-long',
-      LOG_LEVEL: 'silent',
-    }),
-  };
-});
-
 // Import after mocks
+import { DatabaseStore, initializeDatabaseStore, resetDatabaseStore } from '../../registry/pg-store.js';
 import { ensureTenant } from '../middleware.js';
 import { getTenantStore, resetTenantStore } from '../tenant-store.js';
+
+const TEST_SCHEMA = 'dbmcp';
 
 // --- Helpers ---
 
@@ -85,7 +82,6 @@ function callMiddleware(middleware: ReturnType<typeof ensureTenant>, req: Reques
     const next: NextFunction = (err?: unknown) => {
       resolve({ next: true, error: err });
     };
-    // The middleware might respond with res instead of calling next
     const origJson = res.json.bind(res);
     res.json = ((data: unknown) => {
       origJson(data);
@@ -98,34 +94,44 @@ function callMiddleware(middleware: ReturnType<typeof ensureTenant>, req: Reques
 }
 
 // --- Force clerkModule initialization ---
-// ensureTenant() uses the module-level clerkModule which is only set after loadClerk().
-// clerkSessionMiddleware() triggers loadClerk() eagerly but asynchronously.
-// We invoke the returned middleware to force completion before tests run.
 import { clerkSessionMiddleware } from '../middleware.js';
 
 async function initClerkModule() {
   const mw = clerkSessionMiddleware();
-  // Call the middleware to force async init completion
   await new Promise<void>((resolve) => {
     mw(mockReq() as Request, mockRes() as unknown as Response, () => resolve());
   });
 }
 
 describe('ensureTenant', () => {
+  let pool: pg.Pool;
+
   beforeEach(async () => {
-    tmpDir = mkdtempSync(join(tmpdir(), 'dbmcp-ensure-tenant-'));
-    authEnabled = true;
+    const connectionString = process.env.DATABASE_URL
+      || `postgresql://${process.env.POSTGRES_USER ?? 'cube'}:${process.env.POSTGRES_PASSWORD ?? 'cube'}@${process.env.POSTGRES_HOST ?? 'localhost'}:${process.env.POSTGRES_PORT ?? '5432'}/${process.env.POSTGRES_DB ?? 'ecom'}`;
+    pool = new pg.Pool({ connectionString });
+    const pgStore = new DatabaseStore(pool);
+    await pgStore.initialize();
+    resetDatabaseStore();
+    await initializeDatabaseStore();
     resetTenantStore();
+
+    authEnabled = true;
     mockGetOrganization.mockReset();
     mockInitializeDefaultDatabase.mockReset().mockResolvedValue('default-abc');
 
-    // Ensure clerkModule is initialized (async — loadClerk must complete)
+    // Clean up test tenants
+    await pool.query(`DELETE FROM ${TEST_SCHEMA}.tenants`);
+
+    // Ensure clerkModule is initialized
     await initClerkModule();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    await pool.query(`DELETE FROM ${TEST_SCHEMA}.tenants`);
+    await pool.end();
     resetTenantStore();
-    rmSync(tmpDir, { recursive: true, force: true });
+    resetDatabaseStore();
   });
 
   it('passes through when auth is disabled', async () => {
@@ -165,7 +171,7 @@ describe('ensureTenant', () => {
 
     // Verify tenant was stored with name
     const store = getTenantStore();
-    const tenant = store.getById('org_test123');
+    const tenant = await store.getById('org_test123');
     expect(tenant).not.toBeNull();
     expect(tenant!.slug).toBe('acme-corp');
     expect(tenant!.name).toBe('Acme Corporation');
@@ -281,7 +287,7 @@ describe('ensureTenant', () => {
   it('handles slug collision by appending suffix', async () => {
     // Pre-create a tenant with slug 'acme-corp'
     const store = getTenantStore();
-    store.create('org_first', 'acme-corp', 'First Acme');
+    await store.create('org_first', 'acme-corp', 'First Acme');
 
     mockGetOrganization.mockResolvedValue({
       id: 'org_second',
@@ -333,7 +339,7 @@ describe('ensureTenant', () => {
 
     // Only one tenant record should exist
     const store = getTenantStore();
-    const tenant = store.getById('org_race');
+    const tenant = await store.getById('org_race');
     expect(tenant).not.toBeNull();
     expect(tenant!.slug).toBe('race-org');
   });

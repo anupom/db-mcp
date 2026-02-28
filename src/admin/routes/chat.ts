@@ -11,7 +11,7 @@ const router = Router();
 const logger = getLogger().child({ component: 'chat' });
 
 router.post('/', async (req: Request, res: Response) => {
-  const databaseId = verifyDatabaseAccess(req, res);
+  const databaseId = await verifyDatabaseAccess(req, res);
   if (!databaseId) return;
 
   const { messages: uiMessages } = req.body as { messages: UIMessage[] };

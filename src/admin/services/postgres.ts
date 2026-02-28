@@ -26,7 +26,7 @@ async function getPool(databaseId: string = 'default'): Promise<Pool> {
     return fallbackPool;
   }
 
-  const config = manager.getDatabase(databaseId);
+  const config = await manager.getDatabase(databaseId);
   if (!config) {
     throw new Error(`Database '${databaseId}' not found in registry`);
   }

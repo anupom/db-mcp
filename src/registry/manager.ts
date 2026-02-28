@@ -1,10 +1,6 @@
 import { createHash } from 'crypto';
-import { mkdirSync, existsSync, writeFileSync } from 'fs';
-import { writeFile, rename } from 'fs/promises';
-import { join } from 'path';
-import { randomBytes } from 'crypto';
-import { stringify as yamlStringify } from 'yaml';
-import { getDatabaseStore, type DatabaseStore } from './store.js';
+import { getDatabaseStore, type DatabaseStore } from './pg-store.js';
+import { syncConnectionsToDisk, ensureDatabaseDirs, syncCubeFilesToDisk } from './fs-sync.js';
 import { getConfig } from '../config.js';
 import { getLogger } from '../utils/logger.js';
 import type {
@@ -82,58 +78,7 @@ export class DatabaseManager {
    * Get the data directory for a database
    */
   getDatabaseDataDir(databaseId: string): string {
-    return join(this.dataDir, 'databases', databaseId);
-  }
-
-  /**
-   * Get the catalog path for a database
-   */
-  getCatalogPath(databaseId: string, config?: DatabaseConfig): string {
-    if (config?.catalogPath) {
-      return config.catalogPath;
-    }
-    return join(this.getDatabaseDataDir(databaseId), 'agent_catalog.yaml');
-  }
-
-  /**
-   * Get the cube model path for a database
-   */
-  getCubeModelPath(databaseId: string, config?: DatabaseConfig): string {
-    if (config?.cubeModelPath) {
-      return config.cubeModelPath;
-    }
-    return join(this.getDatabaseDataDir(databaseId), 'cube', 'model');
-  }
-
-  /**
-   * Initialize data directory structure for a database
-   */
-  private initializeDataDirectory(databaseId: string): void {
-    const baseDir = this.getDatabaseDataDir(databaseId);
-    const cubeModelDir = join(baseDir, 'cube', 'model', 'cubes');
-
-    // Create directories
-    if (!existsSync(cubeModelDir)) {
-      mkdirSync(cubeModelDir, { recursive: true });
-      logger.debug({ path: cubeModelDir }, 'Created cube model directory');
-    }
-
-    // Create default agent_catalog.yaml if it doesn't exist
-    const catalogPath = join(baseDir, 'agent_catalog.yaml');
-    if (!existsSync(catalogPath)) {
-      const defaultCatalog = {
-        version: '1.0',
-        defaults: {
-          exposed: true,
-          pii: false,
-        },
-        members: {},
-        defaultSegments: [],
-        defaultFilters: [],
-      };
-      writeFileSync(catalogPath, yamlStringify(defaultCatalog), 'utf-8');
-      logger.debug({ path: catalogPath }, 'Created default agent catalog');
-    }
+    return `${this.dataDir}/databases/${databaseId}`;
   }
 
   /**
@@ -147,12 +92,11 @@ export class DatabaseManager {
     logger.info({ slug: userSlug, scopedId, name: config.name, tenantId }, 'Creating database');
 
     // Check global uniqueness of the scoped ID (no tenant filter — it's the PK)
-    if (this.store.exists(scopedId)) {
+    if (await this.store.exists(scopedId)) {
       throw new Error(`Database with ID '${userSlug}' already exists`);
     }
 
     // Validate JWT secret compatibility with Cube.js
-    // Cube.js only supports a single JWT secret, so all databases must use the same secret
     const globalConfig = getConfig();
     if (config.jwtSecret && config.jwtSecret !== globalConfig.CUBE_JWT_SECRET) {
       logger.warn(
@@ -163,13 +107,10 @@ export class DatabaseManager {
       );
     }
 
-    // Initialize data directory structure using the scoped ID
-    this.initializeDataDirectory(scopedId);
+    // Ensure disk directories for Cube.js
+    await ensureDatabaseDirs(scopedId);
 
     // Create database record - use global JWT secret if not provided
-    // Don't persist cubeApiUrl if it matches the env var default — the runtime
-    // fallback handles it and avoids baking in environment-specific hostnames
-    // (e.g. localhost:4000 in local dev vs cube:4000 in Docker)
     const cubeApiUrl = config.cubeApiUrl === globalConfig.CUBE_API_URL
       ? undefined
       : config.cubeApiUrl;
@@ -180,7 +121,16 @@ export class DatabaseManager {
       cubeApiUrl,
       jwtSecret: config.jwtSecret || globalConfig.CUBE_JWT_SECRET,
     };
-    const database = this.store.create(databaseWithDefaults, tenantId);
+    const database = await this.store.create(databaseWithDefaults, tenantId);
+
+    // Create default catalog config in PG
+    await this.store.upsertCatalogConfig(scopedId, {
+      version: '1.0',
+      defaults: { exposed: true, pii: false },
+      members: {},
+      defaultSegments: [],
+      defaultFilters: [],
+    });
 
     this.emit({ type: 'created', database });
     return database;
@@ -189,21 +139,21 @@ export class DatabaseManager {
   /**
    * Get a database by ID
    */
-  getDatabase(id: string, tenantId?: string): DatabaseConfig | null {
+  async getDatabase(id: string, tenantId?: string): Promise<DatabaseConfig | null> {
     return this.store.get(id, tenantId);
   }
 
   /**
    * List all databases
    */
-  listDatabases(tenantId?: string): DatabaseSummary[] {
+  async listDatabases(tenantId?: string): Promise<DatabaseSummary[]> {
     return this.store.list(tenantId);
   }
 
   /**
    * List active databases with full config
    */
-  listActiveDatabases(tenantId?: string): DatabaseConfig[] {
+  async listActiveDatabases(tenantId?: string): Promise<DatabaseConfig[]> {
     return this.store.listActive(tenantId);
   }
 
@@ -213,7 +163,7 @@ export class DatabaseManager {
   async updateDatabase(config: UpdateDatabaseConfig, tenantId?: string): Promise<DatabaseConfig | null> {
     logger.info({ id: config.id, tenantId }, 'Updating database');
 
-    const existing = this.store.get(config.id, tenantId);
+    const existing = await this.store.get(config.id, tenantId);
     if (!existing) {
       throw new Error(`Database '${config.id}' not found`);
     }
@@ -223,13 +173,11 @@ export class DatabaseManager {
       throw new Error('Cannot update connection while database is active. Deactivate first.');
     }
 
-    // Don't persist cubeApiUrl if it matches the env var default — the runtime
-    // fallback handles it and avoids baking in environment-specific hostnames
     const globalConfig = getConfig();
     const updateConfig = config.cubeApiUrl === globalConfig.CUBE_API_URL
       ? { ...config, cubeApiUrl: null }
       : config;
-    const updated = this.store.update(updateConfig, tenantId);
+    const updated = await this.store.update(updateConfig, tenantId);
     if (updated) {
       this.emit({ type: 'updated', database: updated });
     }
@@ -242,7 +190,7 @@ export class DatabaseManager {
   async deleteDatabase(id: string, tenantId?: string): Promise<boolean> {
     logger.info({ id, tenantId }, 'Deleting database');
 
-    const existing = this.store.get(id, tenantId);
+    const existing = await this.store.get(id, tenantId);
     if (!existing) {
       return false;
     }
@@ -252,17 +200,15 @@ export class DatabaseManager {
       throw new Error('Cannot delete an active database. Deactivate first.');
     }
 
-    // Don't allow deleting the default database (slug-based check catches
-    // both 'default' in self-hosted and 'default-{hash}' in SaaS)
+    // Don't allow deleting the default database
     if (existing.slug === 'default') {
       throw new Error('Cannot delete the default database');
     }
 
-    const deleted = this.store.delete(id, tenantId);
+    const deleted = await this.store.delete(id, tenantId);
     if (deleted) {
       this.emit({ type: 'deleted', databaseId: id });
-      // Export updated connections for Cube.js
-      await this.exportConnectionsForCube();
+      await syncConnectionsToDisk();
     }
     return deleted;
   }
@@ -271,7 +217,7 @@ export class DatabaseManager {
    * Test database connection
    */
   async testConnection(id: string, tenantId?: string): Promise<DatabaseTestResult> {
-    const config = this.store.get(id, tenantId);
+    const config = await this.store.get(id, tenantId);
     if (!config) {
       return { success: false, message: `Database '${id}' not found` };
     }
@@ -279,8 +225,6 @@ export class DatabaseManager {
     const startTime = Date.now();
 
     try {
-      // For now, we just test that the configuration is valid
-      // In a full implementation, we would actually connect to the database
       const { connection } = config;
 
       switch (connection.type) {
@@ -305,8 +249,6 @@ export class DatabaseManager {
 
       const latencyMs = Date.now() - startTime;
 
-      // TODO: Actually test the connection
-      // For now, return success if config looks valid
       return {
         success: true,
         message: 'Connection configuration is valid',
@@ -326,7 +268,7 @@ export class DatabaseManager {
   async activateDatabase(id: string, tenantId?: string): Promise<void> {
     logger.info({ id, tenantId }, 'Activating database');
 
-    const config = this.store.get(id, tenantId);
+    const config = await this.store.get(id, tenantId);
     if (!config) {
       throw new Error(`Database '${id}' not found`);
     }
@@ -338,16 +280,17 @@ export class DatabaseManager {
     // Test connection first
     const testResult = await this.testConnection(id, tenantId);
     if (!testResult.success) {
-      this.store.updateStatus(id, 'error', testResult.message, tenantId);
+      await this.store.updateStatus(id, 'error', testResult.message, tenantId);
       throw new Error(`Connection test failed: ${testResult.message}`);
     }
 
     // Update status to active
-    this.store.updateStatus(id, 'active', undefined, tenantId);
+    await this.store.updateStatus(id, 'active', undefined, tenantId);
     this.emit({ type: 'activated', databaseId: id });
 
-    // Export updated connections for Cube.js
-    await this.exportConnectionsForCube();
+    // Sync cube files and connections to disk for Cube.js
+    await syncCubeFilesToDisk(id);
+    await syncConnectionsToDisk();
   }
 
   /**
@@ -356,7 +299,7 @@ export class DatabaseManager {
   async deactivateDatabase(id: string, tenantId?: string): Promise<void> {
     logger.info({ id, tenantId }, 'Deactivating database');
 
-    const config = this.store.get(id, tenantId);
+    const config = await this.store.get(id, tenantId);
     if (!config) {
       throw new Error(`Database '${id}' not found`);
     }
@@ -366,81 +309,19 @@ export class DatabaseManager {
     }
 
     // Update status to inactive
-    this.store.updateStatus(id, 'inactive', undefined, tenantId);
+    await this.store.updateStatus(id, 'inactive', undefined, tenantId);
     this.emit({ type: 'deactivated', databaseId: id });
 
     // Export updated connections for Cube.js
-    await this.exportConnectionsForCube();
+    await syncConnectionsToDisk();
   }
 
   /**
-   * Export active database connections to JSON for Cube.js driverFactory
-   * This file is read by Cube.js to route queries to the correct database
-   * Exports ALL connection fields to support all database types
-   * Note: exports ALL active databases across all tenants (Cube.js serves all)
+   * Export active database connections to JSON for Cube.js driverFactory.
+   * Delegates to fs-sync.
    */
   async exportConnectionsForCube(): Promise<void> {
-    const connections: Record<string, {
-      type: string;
-      // Relational DBs (postgres, mysql, redshift, clickhouse)
-      host?: string;
-      port?: number;
-      database?: string;
-      user?: string;
-      password?: string;
-      ssl?: boolean;
-      // BigQuery
-      projectId?: string;
-      // Snowflake
-      account?: string;
-      warehouse?: string;
-      // Additional options (credentials, keyFilename, role, region, location, etc.)
-      options?: Record<string, unknown>;
-    }> = {};
-
-    // Detect if Cube.js is running in Docker while the backend is on the host.
-    // When CUBE_API_URL uses localhost, we're on the host talking to a Docker Cube.js,
-    // so database hosts that point to localhost need rewriting to host.docker.internal.
-    // Skip rewriting when CUBE_COLOCATED=true (both processes share a container, e.g. Railway).
-    const cubeApiUrl = getConfig().CUBE_API_URL;
-    const cubeColocated = process.env.CUBE_COLOCATED === 'true';
-    const cubeInDocker = !cubeColocated && /https?:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/.test(cubeApiUrl);
-
-    // No tenantId filter — export ALL active databases for Cube.js
-    const databases = this.listActiveDatabases();
-    for (const db of databases) {
-      if (db.connection) {
-        let host = db.connection.host;
-        if (cubeInDocker && host && /^(localhost|127\.0\.0\.1)$/.test(host)) {
-          host = 'host.docker.internal';
-        }
-
-        // Export the full connection object - different DB types need different fields
-        connections[db.id] = {
-          type: db.connection.type,
-          // Relational DBs (postgres, mysql, redshift, clickhouse)
-          host,
-          port: db.connection.port,
-          database: db.connection.database,
-          user: db.connection.user,
-          password: db.connection.password,
-          ssl: db.connection.ssl,
-          // BigQuery
-          projectId: db.connection.projectId,
-          // Snowflake
-          account: db.connection.account,
-          warehouse: db.connection.warehouse,
-          // Additional options
-          options: db.connection.options,
-        };
-      }
-    }
-
-    const exportPath = join(this.dataDir, 'cube-connections.json');
-    const tmpPath = `${exportPath}.${randomBytes(4).toString('hex')}.tmp`;
-    await writeFile(tmpPath, JSON.stringify(connections, null, 2));
-    await rename(tmpPath, exportPath);
-    logger.info({ path: exportPath, count: Object.keys(connections).length }, 'Exported database connections for Cube.js');
+    await syncConnectionsToDisk();
   }
 
   /**
@@ -449,10 +330,9 @@ export class DatabaseManager {
    * Returns the database ID that was created (or already existed).
    */
   async initializeDefaultDatabase(tenantId?: string): Promise<string> {
-    // scopeDatabaseId('default', tenantId) produces the same result as defaultDatabaseId(tenantId)
     const dbId = defaultDatabaseId(tenantId);
 
-    if (this.store.exists(dbId)) {
+    if (await this.store.exists(dbId)) {
       logger.debug({ dbId }, 'Default database already exists');
       return dbId;
     }

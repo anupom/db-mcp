@@ -17,7 +17,7 @@ const router = Router();
 // Query param: ?database=<id> (default: "default")
 router.get('/members', async (req: Request, res: Response) => {
   try {
-    const databaseId = verifyDatabaseAccess(req, res);
+    const databaseId = await verifyDatabaseAccess(req, res);
     if (!databaseId) return;
 
     const cubeConfig = await getCubeApiConfig(databaseId);
@@ -54,7 +54,7 @@ router.get('/members', async (req: Request, res: Response) => {
 // Query param: ?database=<id> (default: "default")
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const databaseId = verifyDatabaseAccess(req, res);
+    const databaseId = await verifyDatabaseAccess(req, res);
     if (!databaseId) return;
 
     const catalog = await readCatalog(databaseId);
@@ -69,7 +69,7 @@ router.get('/', async (req: Request, res: Response) => {
 // Query param: ?database=<id> (default: "default")
 router.put('/members/:name', async (req: Request, res: Response) => {
   try {
-    const databaseId = verifyDatabaseAccess(req, res);
+    const databaseId = await verifyDatabaseAccess(req, res);
     if (!databaseId) return;
 
     const memberName = req.params.name;
@@ -88,7 +88,7 @@ router.put('/members/:name', async (req: Request, res: Response) => {
 // Query param: ?database=<id> (default: "default")
 router.delete('/members/:name', async (req: Request, res: Response) => {
   try {
-    const databaseId = verifyDatabaseAccess(req, res);
+    const databaseId = await verifyDatabaseAccess(req, res);
     if (!databaseId) return;
 
     const memberName = req.params.name;
@@ -105,7 +105,7 @@ router.delete('/members/:name', async (req: Request, res: Response) => {
 // Query param: ?database=<id> (default: "default")
 router.put('/defaults', async (req: Request, res: Response) => {
   try {
-    const databaseId = verifyDatabaseAccess(req, res);
+    const databaseId = await verifyDatabaseAccess(req, res);
     if (!databaseId) return;
 
     const defaults = req.body as { exposed?: boolean; pii?: boolean };

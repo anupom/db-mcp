@@ -46,10 +46,6 @@ export const DatabaseConfigSchema = z.object({
   cubeApiUrl: z.string().url().optional(), // Falls back to global if not set
   jwtSecret: z.string().min(32).optional(), // Falls back to global if not set
 
-  // Data paths (relative to DATA_DIR)
-  catalogPath: z.string().optional(), // Defaults to data/databases/{id}/agent_catalog.yaml
-  cubeModelPath: z.string().optional(), // Defaults to data/databases/{id}/cube/model
-
   // Policy configuration
   maxLimit: z.number().int().positive().default(1000),
   denyMembers: z.array(z.string()).default([]),

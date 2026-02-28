@@ -32,7 +32,7 @@ function generateToken(jwtSecret: string, databaseId?: string): string {
 // POST /api/query/validate - Validate query against rules
 router.post('/validate', async (req: Request, res: Response) => {
   try {
-    const databaseId = verifyDatabaseAccess(req, res);
+    const databaseId = await verifyDatabaseAccess(req, res);
     if (!databaseId) return;
 
     const query = req.body as CubeQuery;
@@ -122,7 +122,7 @@ router.post('/validate', async (req: Request, res: Response) => {
 // POST /api/query/execute - Execute query, return results
 router.post('/execute', async (req: Request, res: Response) => {
   try {
-    const databaseId = verifyDatabaseAccess(req, res);
+    const databaseId = await verifyDatabaseAccess(req, res);
     if (!databaseId) return;
 
     const query = req.body as CubeQuery;
@@ -159,7 +159,7 @@ router.post('/execute', async (req: Request, res: Response) => {
 // POST /api/query/sql - Get generated SQL
 router.post('/sql', async (req: Request, res: Response) => {
   try {
-    const databaseId = verifyDatabaseAccess(req, res);
+    const databaseId = await verifyDatabaseAccess(req, res);
     if (!databaseId) return;
 
     const query = req.body as CubeQuery;
@@ -196,7 +196,7 @@ router.post('/sql', async (req: Request, res: Response) => {
 // GET /api/query/debug - Debug endpoint to verify database routing
 router.get('/debug', async (req: Request, res: Response) => {
   try {
-    const databaseId = verifyDatabaseAccess(req, res);
+    const databaseId = await verifyDatabaseAccess(req, res);
     if (!databaseId) return;
 
     const cubeConfig = await getCubeApiConfig(databaseId);

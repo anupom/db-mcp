@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, rmSync, existsSync } from 'fs';
+import { existsSync } from 'fs';
 import { join } from 'path';
+import { mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
+import pg from 'pg';
 
 // Track the temp dir for config mock
 let tmpDir: string;
@@ -39,22 +41,40 @@ vi.mock('../../admin/services/auto-introspect.js', () => ({
   introspectAndGenerateCubes: (...args: unknown[]) => mockIntrospect(...args),
 }));
 
-import { DatabaseStore } from '../store.js';
+import { DatabaseStore, initializeDatabaseStore, resetDatabaseStore } from '../pg-store.js';
 import { DatabaseManager, defaultDatabaseId } from '../manager.js';
 
+const TEST_SCHEMA = 'dbmcp';
+
 describe('initializeDefaultDatabase', () => {
+  let pool: pg.Pool;
   let store: DatabaseStore;
   let manager: DatabaseManager;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     tmpDir = mkdtempSync(join(tmpdir(), 'dbmcp-manager-'));
-    store = new DatabaseStore(join(tmpDir, 'config.db'));
+    const connectionString = process.env.DATABASE_URL
+      || `postgresql://${process.env.POSTGRES_USER ?? 'cube'}:${process.env.POSTGRES_PASSWORD ?? 'cube'}@${process.env.POSTGRES_HOST ?? 'localhost'}:${process.env.POSTGRES_PORT ?? '5432'}/${process.env.POSTGRES_DB ?? 'ecom'}`;
+    pool = new pg.Pool({ connectionString });
+    store = new DatabaseStore(pool);
+    await store.initialize();
+    // Initialize the singleton so fs-sync.ts can call getDatabaseStore()
+    resetDatabaseStore();
+    await initializeDatabaseStore();
+    // Clean up test data
+    await pool.query(`DELETE FROM ${TEST_SCHEMA}.catalog_configs`);
+    await pool.query(`DELETE FROM ${TEST_SCHEMA}.cube_files`);
+    await pool.query(`DELETE FROM ${TEST_SCHEMA}.databases`);
     manager = new DatabaseManager(store);
     mockIntrospect.mockReset().mockResolvedValue({ generated: ['orders', 'users'], failed: [] });
   });
 
-  afterEach(() => {
-    store.close();
+  afterEach(async () => {
+    await pool.query(`DELETE FROM ${TEST_SCHEMA}.catalog_configs`);
+    await pool.query(`DELETE FROM ${TEST_SCHEMA}.cube_files`);
+    await pool.query(`DELETE FROM ${TEST_SCHEMA}.databases`);
+    await pool.end();
+    resetDatabaseStore();
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
@@ -65,7 +85,7 @@ describe('initializeDefaultDatabase', () => {
     expect(dbId).toBe(defaultDatabaseId(tenantId));
     expect(dbId).toMatch(/^default-[a-f0-9]{12}$/);
 
-    const db = manager.getDatabase(dbId, tenantId);
+    const db = await manager.getDatabase(dbId, tenantId);
     expect(db).not.toBeNull();
     expect(db!.slug).toBe('default');
     expect(db!.name).toBe('Sample Database');
@@ -77,7 +97,7 @@ describe('initializeDefaultDatabase', () => {
 
     expect(dbId).toBe('default');
 
-    const db = manager.getDatabase(dbId);
+    const db = await manager.getDatabase(dbId);
     expect(db).not.toBeNull();
     expect(db!.slug).toBe('default');
     expect(db!.tenantId).toBeUndefined();
@@ -87,18 +107,17 @@ describe('initializeDefaultDatabase', () => {
     const tenantId = 'org_active';
     const dbId = await manager.initializeDefaultDatabase(tenantId);
 
-    const db = manager.getDatabase(dbId, tenantId);
+    const db = await manager.getDatabase(dbId, tenantId);
     expect(db!.status).toBe('active');
   });
 
-  it('creates data directories and catalog file', async () => {
+  it('creates data directories', async () => {
     const tenantId = 'org_dirs';
     const dbId = await manager.initializeDefaultDatabase(tenantId);
 
     const baseDir = manager.getDatabaseDataDir(dbId);
     expect(existsSync(baseDir)).toBe(true);
     expect(existsSync(join(baseDir, 'cube', 'model', 'cubes'))).toBe(true);
-    expect(existsSync(join(baseDir, 'agent_catalog.yaml'))).toBe(true);
   });
 
   it('exports cube-connections.json', async () => {
@@ -111,10 +130,9 @@ describe('initializeDefaultDatabase', () => {
 
   it('uses postgres connection from env defaults', async () => {
     const dbId = await manager.initializeDefaultDatabase('org_conn');
-    const db = manager.getDatabase(dbId, 'org_conn');
+    const db = await manager.getDatabase(dbId, 'org_conn');
 
     expect(db!.connection.type).toBe('postgres');
-    // Defaults from env or fallback values
     expect(db!.connection.host).toBe(process.env.POSTGRES_HOST ?? 'localhost');
     expect(db!.connection.port).toBe(parseInt(process.env.POSTGRES_PORT ?? '5432'));
   });
@@ -131,7 +149,7 @@ describe('initializeDefaultDatabase', () => {
     const dbId = await manager.initializeDefaultDatabase('org_introspect_fail');
 
     // Database should still be created and active
-    const db = manager.getDatabase(dbId, 'org_introspect_fail');
+    const db = await manager.getDatabase(dbId, 'org_introspect_fail');
     expect(db).not.toBeNull();
     expect(db!.status).toBe('active');
   });
@@ -144,7 +162,7 @@ describe('initializeDefaultDatabase', () => {
     expect(id1).toBe(id2);
 
     // Only one database should exist
-    const dbs = manager.listDatabases(tenantId);
+    const dbs = await manager.listDatabases(tenantId);
     expect(dbs).toHaveLength(1);
 
     // Auto-introspect only called once (first creation)
@@ -158,8 +176,8 @@ describe('initializeDefaultDatabase', () => {
     expect(id1).not.toBe(id2);
 
     // Each tenant sees only their own database
-    const dbsA = manager.listDatabases('org_tenant_a');
-    const dbsB = manager.listDatabases('org_tenant_b');
+    const dbsA = await manager.listDatabases('org_tenant_a');
+    const dbsB = await manager.listDatabases('org_tenant_b');
     expect(dbsA).toHaveLength(1);
     expect(dbsB).toHaveLength(1);
     expect(dbsA[0].id).toBe(id1);

@@ -51,16 +51,16 @@ export function slugifyName(name: string): string | null {
  * Generate a unique slug by appending numeric suffixes on collision.
  * Prefers `preferredSlug` (e.g. from Clerk org slug/name) over the org ID fallback.
  */
-export function generateUniqueSlug(
+export async function generateUniqueSlug(
   orgId: string,
-  slugExists: (slug: string) => boolean,
+  slugExists: (slug: string) => boolean | Promise<boolean>,
   preferredSlug?: string | null
-): string {
+): Promise<string> {
   const base = preferredSlug && isValidSlug(preferredSlug)
     ? preferredSlug
     : generateSlug(orgId);
 
-  if (!slugExists(base)) {
+  if (!await slugExists(base)) {
     return base;
   }
 
@@ -68,7 +68,7 @@ export function generateUniqueSlug(
   const maxBase = base.slice(0, 44);
   for (let i = 2; i <= 999; i++) {
     const candidate = `${maxBase}-${i}`;
-    if (!slugExists(candidate)) {
+    if (!await slugExists(candidate)) {
       return candidate;
     }
   }

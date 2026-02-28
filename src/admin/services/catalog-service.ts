@@ -1,23 +1,6 @@
-import * as yaml from 'yaml';
-import * as fs from 'fs/promises';
 import { z } from 'zod';
+import { getDatabaseStore } from '../../registry/pg-store.js';
 import { getDatabaseManager } from '../../registry/manager.js';
-
-// Get catalog path for a database
-async function getCatalogPath(databaseId: string = 'default'): Promise<string> {
-  const manager = getDatabaseManager();
-  if (!manager) {
-    throw new Error('Registry not available');
-  }
-
-  const config = manager.getDatabase(databaseId);
-  if (!config) {
-    throw new Error(`Database '${databaseId}' not found in registry`);
-  }
-
-  // Get the catalog path from the registry manager
-  return manager.getCatalogPath(databaseId, config);
-}
 
 // Default Cube API config
 const DEFAULT_CUBE_API_URL = process.env.CUBE_API_URL || 'http://localhost:4000/cubejs-api/v1';
@@ -31,7 +14,7 @@ export async function getCubeApiConfig(databaseId: string = 'default'): Promise<
     return { cubeApiUrl: DEFAULT_CUBE_API_URL, jwtSecret: DEFAULT_CUBE_JWT_SECRET };
   }
 
-  const config = manager.getDatabase(databaseId);
+  const config = await manager.getDatabase(databaseId);
   if (!config) {
     throw new Error(`Database '${databaseId}' not found in registry`);
   }
@@ -93,12 +76,20 @@ export interface MemberWithGovernance {
 
 export async function readCatalog(databaseId?: string): Promise<AgentCatalogConfig> {
   try {
-    const catalogPath = await getCatalogPath(databaseId);
-    const content = await fs.readFile(catalogPath, 'utf-8');
-    const parsed = yaml.parse(content);
-    return AgentCatalogConfigSchema.parse(parsed);
-  } catch (error) {
-    // Return default if file doesn't exist
+    const store = getDatabaseStore();
+    const config = await store.getCatalogConfig(databaseId ?? 'default');
+    if (!config) {
+      return {
+        version: '1.0',
+        defaults: { exposed: true, pii: false },
+        members: {},
+        defaultSegments: [],
+        defaultFilters: [],
+      };
+    }
+    return AgentCatalogConfigSchema.parse(config);
+  } catch {
+    // Return default if anything goes wrong
     return {
       version: '1.0',
       defaults: { exposed: true, pii: false },
@@ -112,9 +103,8 @@ export async function readCatalog(databaseId?: string): Promise<AgentCatalogConf
 export async function writeCatalog(config: AgentCatalogConfig, databaseId?: string): Promise<void> {
   // Validate before writing
   AgentCatalogConfigSchema.parse(config);
-  const catalogPath = await getCatalogPath(databaseId);
-  const content = yaml.stringify(config, { lineWidth: 0 });
-  await fs.writeFile(catalogPath, content, 'utf-8');
+  const store = getDatabaseStore();
+  await store.upsertCatalogConfig(databaseId ?? 'default', config as unknown as Record<string, unknown>);
 }
 
 export async function updateMember(
@@ -183,7 +173,6 @@ export function mergeWithCubeMeta(
 
     // Process measures
     for (const measure of (cube.measures || []) as Array<{ name: string; title?: string; description?: string; type?: string }>) {
-      // Cube API already returns full names like "Orders.count"
       const fullName = measure.name;
       const memberName = measure.name.includes('.') ? measure.name.split('.').slice(1).join('.') : measure.name;
       const override = catalog.members?.[fullName];
@@ -208,7 +197,6 @@ export function mergeWithCubeMeta(
 
     // Process dimensions
     for (const dim of (cube.dimensions || []) as Array<{ name: string; title?: string; description?: string; type?: string }>) {
-      // Cube API already returns full names like "Orders.status"
       const fullName = dim.name;
       const memberName = dim.name.includes('.') ? dim.name.split('.').slice(1).join('.') : dim.name;
       const override = catalog.members?.[fullName];
@@ -232,7 +220,6 @@ export function mergeWithCubeMeta(
 
     // Process segments
     for (const seg of (cube.segments || []) as Array<{ name: string; title?: string; description?: string }>) {
-      // Cube API already returns full names like "Orders.completed_orders"
       const fullName = seg.name;
       const memberName = seg.name.includes('.') ? seg.name.split('.').slice(1).join('.') : seg.name;
       const override = catalog.members?.[fullName];

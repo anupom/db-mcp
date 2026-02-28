@@ -49,7 +49,7 @@ export function validateMcpApiKey(): RequestHandler {
     const keyHash = crypto.createHash('sha256').update(rawKey).digest('hex');
 
     const store = getApiKeyStore();
-    const apiKey = store.getByHash(keyHash);
+    const apiKey = await store.getByHash(keyHash);
 
     if (!apiKey) {
       res.status(401).json({
@@ -74,7 +74,7 @@ export function validateMcpApiKey(): RequestHandler {
     const { tenantSlug } = req.params;
     if (tenantSlug) {
       const tenantStore = getTenantStore();
-      const tenant = tenantStore.getBySlug(tenantSlug);
+      const tenant = await tenantStore.getBySlug(tenantSlug);
       if (!tenant) {
         res.status(404).json({
           jsonrpc: '2.0',
@@ -97,7 +97,7 @@ export function validateMcpApiKey(): RequestHandler {
     const databaseId = req.params.databaseId;
     if (databaseId) {
       const manager = getDatabaseManager();
-      const db = manager.getDatabase(databaseId, apiKey.tenantId);
+      const db = await manager.getDatabase(databaseId, apiKey.tenantId);
       if (!db) {
         res.status(404).json({
           jsonrpc: '2.0',
@@ -109,7 +109,7 @@ export function validateMcpApiKey(): RequestHandler {
     }
 
     // Touch last used (fire-and-forget, non-critical)
-    try { store.touchLastUsed(apiKey.id); } catch { /* best-effort */ }
+    store.touchLastUsed(apiKey.id).catch(() => { /* best-effort */ });
 
     const tenant: TenantContext = {
       tenantId: apiKey.tenantId,

@@ -161,7 +161,7 @@ export function ensureTenant(): RequestHandler {
 
     try {
       const store = getTenantStore();
-      let tenant = store.getById(req.tenant.tenantId);
+      let tenant = await store.getById(req.tenant.tenantId);
 
       if (!tenant) {
         let isNewTenant = false;
@@ -171,17 +171,17 @@ export function ensureTenant(): RequestHandler {
           const preferredSlug = orgDetails?.slug
             || (orgDetails?.name ? slugifyName(orgDetails.name) : null);
 
-          const slug = generateUniqueSlug(
+          const slug = await generateUniqueSlug(
             req.tenant.tenantId,
             (s) => store.slugExists(s),
             preferredSlug
           );
-          tenant = store.create(req.tenant.tenantId, slug, orgDetails?.name ?? undefined);
+          tenant = await store.create(req.tenant.tenantId, slug, orgDetails?.name ?? undefined);
           isNewTenant = true;
         } catch (err) {
           // Handle race: concurrent request already created this tenant
-          if (err instanceof Error && (err.message.includes('UNIQUE constraint') || err.message.includes('PRIMARY'))) {
-            tenant = store.getById(req.tenant.tenantId);
+          if (err instanceof Error && (err.message.includes('UNIQUE constraint') || err.message.includes('duplicate key') || err.message.includes('PRIMARY'))) {
+            tenant = await store.getById(req.tenant.tenantId);
           }
           if (!tenant) throw err;
         }

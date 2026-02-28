@@ -1,26 +1,30 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, rmSync } from 'fs';
-import { join } from 'path';
-import { tmpdir } from 'os';
+import pg from 'pg';
 
 // Mock getConfig before importing store
 vi.mock('../../config.js', () => {
-  let dataDir = '/tmp';
   return {
     getConfig: () => ({
-      DATA_DIR: dataDir,
+      DATA_DIR: '/tmp/dbmcp-test',
       CUBE_JWT_SECRET: 'test-secret-that-is-at-least-32-characters-long',
-      ADMIN_SECRET: undefined, // no encryption in tests
+      ADMIN_SECRET: undefined,
       LOG_LEVEL: 'silent',
     }),
-    __setDataDir: (dir: string) => { dataDir = dir; },
   };
 });
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const { __setDataDir } = await import('../../config.js') as any;
+vi.mock('../../utils/logger.js', () => {
+  const noopLogger = {
+    info: vi.fn(),
+    warn: vi.fn(),
+    debug: vi.fn(),
+    error: vi.fn(),
+    child: () => noopLogger,
+  };
+  return { getLogger: () => noopLogger };
+});
 
-import { DatabaseStore } from '../store.js';
+import { DatabaseStore } from '../pg-store.js';
 import { scopeDatabaseId, defaultDatabaseId } from '../manager.js';
 import type { CreateDatabaseConfig } from '../types.js';
 
@@ -37,176 +41,183 @@ function makeConfig(id: string, overrides?: Partial<CreateDatabaseConfig>): Crea
   };
 }
 
+// Test schema to isolate test data
+const TEST_SCHEMA = 'dbmcp';
+
 describe('DatabaseStore — tenant isolation', () => {
-  let tmpDir: string;
+  let pool: pg.Pool;
   let store: DatabaseStore;
 
-  beforeEach(() => {
-    tmpDir = mkdtempSync(join(tmpdir(), 'dbmcp-test-'));
-    __setDataDir(tmpDir);
-    store = new DatabaseStore(join(tmpDir, 'config.db'));
+  beforeEach(async () => {
+    const connectionString = process.env.DATABASE_URL
+      || `postgresql://${process.env.POSTGRES_USER ?? 'cube'}:${process.env.POSTGRES_PASSWORD ?? 'cube'}@${process.env.POSTGRES_HOST ?? 'localhost'}:${process.env.POSTGRES_PORT ?? '5432'}/${process.env.POSTGRES_DB ?? 'ecom'}`;
+    pool = new pg.Pool({ connectionString });
+    store = new DatabaseStore(pool);
+    await store.initialize();
+    // Clean up test data
+    await pool.query(`DELETE FROM ${TEST_SCHEMA}.databases`);
   });
 
-  afterEach(() => {
-    store.close();
-    rmSync(tmpDir, { recursive: true, force: true });
+  afterEach(async () => {
+    await pool.query(`DELETE FROM ${TEST_SCHEMA}.databases`);
+    await pool.end();
   });
 
   // -- create --
 
-  it('creates a database without tenantId (self-hosted)', () => {
-    const db = store.create(makeConfig('db1'));
+  it('creates a database without tenantId (self-hosted)', async () => {
+    const db = await store.create(makeConfig('db1'));
     expect(db.id).toBe('db1');
     expect(db.tenantId).toBeUndefined();
   });
 
-  it('creates a database with tenantId (SaaS)', () => {
-    const db = store.create(makeConfig('db1'), 'tenant-a');
+  it('creates a database with tenantId (SaaS)', async () => {
+    const db = await store.create(makeConfig('db1'), 'tenant-a');
     expect(db.id).toBe('db1');
     expect(db.tenantId).toBe('tenant-a');
   });
 
   // -- get --
 
-  it('get without tenantId returns any database (self-hosted)', () => {
-    store.create(makeConfig('db1'), 'tenant-a');
-    const db = store.get('db1');
+  it('get without tenantId returns any database (self-hosted)', async () => {
+    await store.create(makeConfig('db1'), 'tenant-a');
+    const db = await store.get('db1');
     expect(db).not.toBeNull();
     expect(db!.id).toBe('db1');
   });
 
-  it('get with matching tenantId returns the database', () => {
-    store.create(makeConfig('db1'), 'tenant-a');
-    const db = store.get('db1', 'tenant-a');
+  it('get with matching tenantId returns the database', async () => {
+    await store.create(makeConfig('db1'), 'tenant-a');
+    const db = await store.get('db1', 'tenant-a');
     expect(db).not.toBeNull();
   });
 
-  it('get with wrong tenantId returns null', () => {
-    store.create(makeConfig('db1'), 'tenant-a');
-    const db = store.get('db1', 'tenant-b');
+  it('get with wrong tenantId returns null', async () => {
+    await store.create(makeConfig('db1'), 'tenant-a');
+    const db = await store.get('db1', 'tenant-b');
     expect(db).toBeNull();
   });
 
   // -- list --
 
-  it('list without tenantId returns all databases', () => {
-    store.create(makeConfig('db1'), 'tenant-a');
-    store.create(makeConfig('db2'), 'tenant-b');
-    store.create(makeConfig('db3'));
+  it('list without tenantId returns all databases', async () => {
+    await store.create(makeConfig('db1'), 'tenant-a');
+    await store.create(makeConfig('db2'), 'tenant-b');
+    await store.create(makeConfig('db3'));
 
-    const all = store.list();
+    const all = await store.list();
     expect(all).toHaveLength(3);
   });
 
-  it('list with tenantId filters to that tenant', () => {
-    store.create(makeConfig('db1'), 'tenant-a');
-    store.create(makeConfig('db2'), 'tenant-a');
-    store.create(makeConfig('db3'), 'tenant-b');
+  it('list with tenantId filters to that tenant', async () => {
+    await store.create(makeConfig('db1'), 'tenant-a');
+    await store.create(makeConfig('db2'), 'tenant-a');
+    await store.create(makeConfig('db3'), 'tenant-b');
 
-    const tenantA = store.list('tenant-a');
+    const tenantA = await store.list('tenant-a');
     expect(tenantA).toHaveLength(2);
     expect(tenantA.every(d => d.tenantId === 'tenant-a')).toBe(true);
 
-    const tenantB = store.list('tenant-b');
+    const tenantB = await store.list('tenant-b');
     expect(tenantB).toHaveLength(1);
     expect(tenantB[0].id).toBe('db3');
   });
 
   // -- listActive --
 
-  it('listActive filters by tenant and status', () => {
-    store.create(makeConfig('db1'), 'tenant-a');
-    store.create(makeConfig('db2'), 'tenant-a');
-    store.create(makeConfig('db3'), 'tenant-b');
+  it('listActive filters by tenant and status', async () => {
+    await store.create(makeConfig('db1'), 'tenant-a');
+    await store.create(makeConfig('db2'), 'tenant-a');
+    await store.create(makeConfig('db3'), 'tenant-b');
 
-    store.updateStatus('db1', 'active');
-    store.updateStatus('db3', 'active');
+    await store.updateStatus('db1', 'active');
+    await store.updateStatus('db3', 'active');
 
-    const activeTenantA = store.listActive('tenant-a');
+    const activeTenantA = await store.listActive('tenant-a');
     expect(activeTenantA).toHaveLength(1);
     expect(activeTenantA[0].id).toBe('db1');
   });
 
   // -- update --
 
-  it('update with matching tenantId succeeds', () => {
-    store.create(makeConfig('db1'), 'tenant-a');
-    const updated = store.update({ id: 'db1', name: 'Updated' }, 'tenant-a');
+  it('update with matching tenantId succeeds', async () => {
+    await store.create(makeConfig('db1'), 'tenant-a');
+    const updated = await store.update({ id: 'db1', name: 'Updated' }, 'tenant-a');
     expect(updated).not.toBeNull();
     expect(updated!.name).toBe('Updated');
   });
 
-  it('update with wrong tenantId returns null', () => {
-    store.create(makeConfig('db1'), 'tenant-a');
-    const updated = store.update({ id: 'db1', name: 'Updated' }, 'tenant-b');
+  it('update with wrong tenantId returns null', async () => {
+    await store.create(makeConfig('db1'), 'tenant-a');
+    const updated = await store.update({ id: 'db1', name: 'Updated' }, 'tenant-b');
     expect(updated).toBeNull();
   });
 
   // -- delete --
 
-  it('delete with matching tenantId succeeds', () => {
-    store.create(makeConfig('db1'), 'tenant-a');
-    const deleted = store.delete('db1', 'tenant-a');
+  it('delete with matching tenantId succeeds', async () => {
+    await store.create(makeConfig('db1'), 'tenant-a');
+    const deleted = await store.delete('db1', 'tenant-a');
     expect(deleted).toBe(true);
-    expect(store.get('db1')).toBeNull();
+    expect(await store.get('db1')).toBeNull();
   });
 
-  it('delete with wrong tenantId fails', () => {
-    store.create(makeConfig('db1'), 'tenant-a');
-    const deleted = store.delete('db1', 'tenant-b');
+  it('delete with wrong tenantId fails', async () => {
+    await store.create(makeConfig('db1'), 'tenant-a');
+    const deleted = await store.delete('db1', 'tenant-b');
     expect(deleted).toBe(false);
-    expect(store.get('db1')).not.toBeNull();
+    expect(await store.get('db1')).not.toBeNull();
   });
 
   // -- updateStatus --
 
-  it('updateStatus with matching tenantId succeeds', () => {
-    store.create(makeConfig('db1'), 'tenant-a');
-    const result = store.updateStatus('db1', 'active', undefined, 'tenant-a');
+  it('updateStatus with matching tenantId succeeds', async () => {
+    await store.create(makeConfig('db1'), 'tenant-a');
+    const result = await store.updateStatus('db1', 'active', undefined, 'tenant-a');
     expect(result).toBe(true);
-    expect(store.get('db1')!.status).toBe('active');
+    expect((await store.get('db1'))!.status).toBe('active');
   });
 
-  it('updateStatus with wrong tenantId fails', () => {
-    store.create(makeConfig('db1'), 'tenant-a');
-    const result = store.updateStatus('db1', 'active', undefined, 'tenant-b');
+  it('updateStatus with wrong tenantId fails', async () => {
+    await store.create(makeConfig('db1'), 'tenant-a');
+    const result = await store.updateStatus('db1', 'active', undefined, 'tenant-b');
     expect(result).toBe(false);
-    expect(store.get('db1')!.status).toBe('inactive');
+    expect((await store.get('db1'))!.status).toBe('inactive');
   });
 
   // -- exists --
 
-  it('exists without tenantId matches any', () => {
-    store.create(makeConfig('db1'), 'tenant-a');
-    expect(store.exists('db1')).toBe(true);
+  it('exists without tenantId matches any', async () => {
+    await store.create(makeConfig('db1'), 'tenant-a');
+    expect(await store.exists('db1')).toBe(true);
   });
 
-  it('exists with matching tenantId returns true', () => {
-    store.create(makeConfig('db1'), 'tenant-a');
-    expect(store.exists('db1', 'tenant-a')).toBe(true);
+  it('exists with matching tenantId returns true', async () => {
+    await store.create(makeConfig('db1'), 'tenant-a');
+    expect(await store.exists('db1', 'tenant-a')).toBe(true);
   });
 
-  it('exists with wrong tenantId returns false', () => {
-    store.create(makeConfig('db1'), 'tenant-a');
-    expect(store.exists('db1', 'tenant-b')).toBe(false);
+  it('exists with wrong tenantId returns false', async () => {
+    await store.create(makeConfig('db1'), 'tenant-a');
+    expect(await store.exists('db1', 'tenant-b')).toBe(false);
   });
 
   // -- slug --
 
-  it('create persists slug from config', () => {
-    const db = store.create(makeConfig('scoped-id-123', { slug: 'analytics' }), 'tenant-a');
+  it('create persists slug from config', async () => {
+    const db = await store.create(makeConfig('scoped-id-123', { slug: 'analytics' }), 'tenant-a');
     expect(db.id).toBe('scoped-id-123');
     expect(db.slug).toBe('analytics');
   });
 
-  it('create defaults slug to id when not provided', () => {
-    const db = store.create(makeConfig('mydb'));
+  it('create defaults slug to id when not provided', async () => {
+    const db = await store.create(makeConfig('mydb'));
     expect(db.slug).toBe('mydb');
   });
 
-  it('list returns slug', () => {
-    store.create(makeConfig('scoped-id', { slug: 'analytics' }), 'tenant-a');
-    const list = store.list('tenant-a');
+  it('list returns slug', async () => {
+    await store.create(makeConfig('scoped-id', { slug: 'analytics' }), 'tenant-a');
+    const list = await store.list('tenant-a');
     expect(list[0].slug).toBe('analytics');
   });
 });
@@ -239,45 +250,48 @@ describe('scopeDatabaseId', () => {
 });
 
 describe('slug-based scoping — no PK collision', () => {
-  let tmpDir: string;
+  let pool: pg.Pool;
   let store: DatabaseStore;
 
-  beforeEach(() => {
-    tmpDir = mkdtempSync(join(tmpdir(), 'dbmcp-test-'));
-    __setDataDir(tmpDir);
-    store = new DatabaseStore(join(tmpDir, 'config.db'));
+  beforeEach(async () => {
+    const connectionString = process.env.DATABASE_URL
+      || `postgresql://${process.env.POSTGRES_USER ?? 'cube'}:${process.env.POSTGRES_PASSWORD ?? 'cube'}@${process.env.POSTGRES_HOST ?? 'localhost'}:${process.env.POSTGRES_PORT ?? '5432'}/${process.env.POSTGRES_DB ?? 'ecom'}`;
+    pool = new pg.Pool({ connectionString });
+    store = new DatabaseStore(pool);
+    await store.initialize();
+    await pool.query(`DELETE FROM ${TEST_SCHEMA}.databases`);
   });
 
-  afterEach(() => {
-    store.close();
-    rmSync(tmpDir, { recursive: true, force: true });
+  afterEach(async () => {
+    await pool.query(`DELETE FROM ${TEST_SCHEMA}.databases`);
+    await pool.end();
   });
 
-  it('two tenants can use the same slug without PK collision', () => {
+  it('two tenants can use the same slug without PK collision', async () => {
     const idA = scopeDatabaseId('analytics', 'tenant-a');
     const idB = scopeDatabaseId('analytics', 'tenant-b');
 
-    store.create(makeConfig(idA, { slug: 'analytics' }), 'tenant-a');
-    store.create(makeConfig(idB, { slug: 'analytics' }), 'tenant-b');
+    await store.create(makeConfig(idA, { slug: 'analytics' }), 'tenant-a');
+    await store.create(makeConfig(idB, { slug: 'analytics' }), 'tenant-b');
 
-    expect(store.exists(idA)).toBe(true);
-    expect(store.exists(idB)).toBe(true);
+    expect(await store.exists(idA)).toBe(true);
+    expect(await store.exists(idB)).toBe(true);
 
-    const listA = store.list('tenant-a');
-    const listB = store.list('tenant-b');
+    const listA = await store.list('tenant-a');
+    const listB = await store.list('tenant-b');
     expect(listA).toHaveLength(1);
     expect(listB).toHaveLength(1);
     expect(listA[0].slug).toBe('analytics');
     expect(listB[0].slug).toBe('analytics');
   });
 
-  it('scoped IDs are globally unique', () => {
+  it('scoped IDs are globally unique', async () => {
     const idA = scopeDatabaseId('db', 'tenant-a');
     const idB = scopeDatabaseId('db', 'tenant-b');
     expect(idA).not.toBe(idB);
 
-    store.create(makeConfig(idA, { slug: 'db' }), 'tenant-a');
-    // Should not throw UNIQUE constraint error
-    expect(() => store.create(makeConfig(idB, { slug: 'db' }), 'tenant-b')).not.toThrow();
+    await store.create(makeConfig(idA, { slug: 'db' }), 'tenant-a');
+    // Should not throw constraint error
+    await expect(store.create(makeConfig(idB, { slug: 'db' }), 'tenant-b')).resolves.toBeDefined();
   });
 });

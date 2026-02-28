@@ -1,28 +1,6 @@
 import * as yaml from 'yaml';
-import * as fs from 'fs/promises';
-import * as path from 'path';
-import { getDatabaseManager } from '../../registry/manager.js';
-
-// Default fallback path
-const DEFAULT_CUBE_MODEL_PATH = process.env.CUBE_MODEL_PATH || './cube/model/cubes';
-
-// Get cube model path for a database
-async function getCubeModelPath(databaseId: string = 'default'): Promise<string> {
-  const manager = getDatabaseManager();
-  if (!manager) {
-    // Fallback to environment variable
-    console.warn('Registry not available, falling back to environment variable for cube model path');
-    return DEFAULT_CUBE_MODEL_PATH;
-  }
-
-  const config = manager.getDatabase(databaseId);
-  if (!config) {
-    throw new Error(`Database '${databaseId}' not found in registry`);
-  }
-
-  // Get the cube model path from the registry manager
-  return manager.getCubeModelPath(databaseId, config) + '/cubes';
-}
+import { getDatabaseStore } from '../../registry/pg-store.js';
+import { writeCubeFileToDisk, deleteCubeFileFromDisk } from '../../registry/fs-sync.js';
 
 export interface MeasureConfig {
   name: string;
@@ -103,20 +81,6 @@ export function generateCubeYaml(config: CubeConfig): string {
   return yaml.stringify(cube, { lineWidth: 0 });
 }
 
-export async function listCubeFiles(databaseId?: string): Promise<Array<{ name: string; path: string }>> {
-  try {
-    const cubeModelPath = await getCubeModelPath(databaseId);
-    const files = await fs.readdir(cubeModelPath);
-    const yamlFiles = files.filter((f) => f.endsWith('.yml') || f.endsWith('.yaml'));
-    return yamlFiles.map((f) => ({
-      name: f.replace(/\.(yml|yaml)$/, ''),
-      path: path.join(cubeModelPath, f),
-    }));
-  } catch {
-    return [];
-  }
-}
-
 /**
  * Validate fileName to prevent path traversal.
  * Only allows alphanumeric, hyphens, underscores, and dots (no slashes or ..).
@@ -129,28 +93,54 @@ function validateFileName(fileName: string): string {
   return name;
 }
 
+export async function listCubeFiles(databaseId?: string): Promise<Array<{ name: string; path: string }>> {
+  try {
+    const store = getDatabaseStore();
+    const files = await store.listCubeFiles(databaseId ?? 'default');
+    return files.map(f => ({
+      name: f.fileName.replace(/\.(yml|yaml)$/, ''),
+      path: f.fileName,
+    }));
+  } catch {
+    return [];
+  }
+}
+
 export async function readCubeFile(fileName: string, databaseId?: string): Promise<{ content: string; parsed: unknown }> {
-  const cubeModelPath = await getCubeModelPath(databaseId);
+  const store = getDatabaseStore();
   const safeName = validateFileName(fileName);
-  const filePath = path.join(cubeModelPath, safeName);
-  const content = await fs.readFile(filePath, 'utf-8');
-  const parsed = yaml.parse(content);
-  return { content, parsed };
+  const file = await store.getCubeFile(databaseId ?? 'default', safeName);
+  if (!file) {
+    throw new Error(`Cube file '${fileName}' not found`);
+  }
+  const parsed = yaml.parse(file.content);
+  return { content: file.content, parsed };
 }
 
 export async function writeCubeFile(fileName: string, content: string, databaseId?: string): Promise<void> {
-  const cubeModelPath = await getCubeModelPath(databaseId);
+  const dbId = databaseId ?? 'default';
   const safeName = validateFileName(fileName);
-  const filePath = path.join(cubeModelPath, safeName);
   // Validate YAML before writing
   yaml.parse(content);
-  await fs.writeFile(filePath, content, 'utf-8');
+  // Write to PG (source of truth)
+  const store = getDatabaseStore();
+  await store.upsertCubeFile(dbId, safeName, content);
+  // Write to disk (for Cube.js)
+  await writeCubeFileToDisk(dbId, safeName, content);
 }
 
 export async function createCubeFile(fileName: string, config: CubeConfig, databaseId?: string): Promise<string> {
   const content = generateCubeYaml(config);
   await writeCubeFile(fileName, content, databaseId);
   return content;
+}
+
+export async function deleteCubeFile(fileName: string, databaseId?: string): Promise<void> {
+  const dbId = databaseId ?? 'default';
+  const safeName = validateFileName(fileName);
+  const store = getDatabaseStore();
+  await store.deleteCubeFile(dbId, safeName);
+  await deleteCubeFileFromDisk(dbId, safeName);
 }
 
 export async function getCubeApiMeta(cubeApiUrl: string, jwtSecret: string, databaseId?: string): Promise<unknown> {

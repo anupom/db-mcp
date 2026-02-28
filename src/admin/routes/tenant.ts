@@ -8,7 +8,7 @@ const router = Router();
 /**
  * GET /api/tenant — returns current tenant info (tenantId, slug, name)
  */
-router.get('/', (req: Request, res: Response) => {
+router.get('/', async (req: Request, res: Response) => {
   const tenantId = req.tenant?.tenantId;
   if (!tenantId) {
     res.status(400).json({ error: 'Tenant context required' });
@@ -16,7 +16,7 @@ router.get('/', (req: Request, res: Response) => {
   }
 
   const store = getTenantStore();
-  const tenant = store.getById(tenantId);
+  const tenant = await store.getById(tenantId);
   if (!tenant) {
     res.status(404).json({ error: 'Tenant not found' });
     return;
@@ -32,7 +32,7 @@ router.get('/', (req: Request, res: Response) => {
 /**
  * PUT /api/tenant/slug — update tenant slug (requires org admin)
  */
-router.put('/slug', requireOrgAdmin(), (req: Request, res: Response) => {
+router.put('/slug', requireOrgAdmin(), async (req: Request, res: Response) => {
   const tenantId = req.tenant?.tenantId;
   if (!tenantId) {
     res.status(400).json({ error: 'Tenant context required' });
@@ -55,14 +55,14 @@ router.put('/slug', requireOrgAdmin(), (req: Request, res: Response) => {
   const store = getTenantStore();
 
   // Check uniqueness (not taken by another tenant)
-  const existing = store.getBySlug(slug);
+  const existing = await store.getBySlug(slug);
   if (existing && existing.id !== tenantId) {
     res.status(409).json({ error: 'Slug is already taken' });
     return;
   }
 
   try {
-    const tenant = store.updateSlug(tenantId, slug);
+    const tenant = await store.updateSlug(tenantId, slug);
     if (!tenant) {
       res.status(404).json({ error: 'Tenant not found' });
       return;
@@ -75,7 +75,7 @@ router.put('/slug', requireOrgAdmin(), (req: Request, res: Response) => {
     });
   } catch (err) {
     // UNIQUE constraint race: another request took this slug between our check and update
-    if (err instanceof Error && err.message.includes('UNIQUE constraint')) {
+    if (err instanceof Error && (err.message.includes('UNIQUE constraint') || err.message.includes('duplicate key'))) {
       res.status(409).json({ error: 'Slug is already taken' });
       return;
     }

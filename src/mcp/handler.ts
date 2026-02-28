@@ -91,7 +91,6 @@ export class DatabaseMcpHandler {
 
     this.catalogIndex = createCatalogIndex(
       {
-        catalogPath: config.catalogPath,
         databaseId: config.id,
       },
       this.cubeClient

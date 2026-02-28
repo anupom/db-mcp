@@ -18,7 +18,7 @@ const router = Router();
 // Query param: ?database=<id> (default: "default")
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const databaseId = verifyDatabaseAccess(req, res);
+    const databaseId = await verifyDatabaseAccess(req, res);
     if (!databaseId) return;
 
     const cubeConfig = await getCubeApiConfig(databaseId);
@@ -52,7 +52,7 @@ router.post('/generate', async (req: Request, res: Response) => {
 // Query param: ?database=<id> (default: "default")
 router.get('/files', async (req: Request, res: Response) => {
   try {
-    const databaseId = verifyDatabaseAccess(req, res);
+    const databaseId = await verifyDatabaseAccess(req, res);
     if (!databaseId) return;
 
     const files = await listCubeFiles(databaseId);
@@ -67,7 +67,7 @@ router.get('/files', async (req: Request, res: Response) => {
 // Query param: ?database=<id> (default: "default")
 router.get('/files/:name', async (req: Request, res: Response) => {
   try {
-    const databaseId = verifyDatabaseAccess(req, res);
+    const databaseId = await verifyDatabaseAccess(req, res);
     if (!databaseId) return;
 
     const { name } = req.params;
@@ -84,7 +84,7 @@ router.get('/files/:name', async (req: Request, res: Response) => {
 // Query param: ?database=<id> (default: "default")
 router.put('/files/:name', async (req: Request, res: Response) => {
   try {
-    const databaseId = verifyDatabaseAccess(req, res);
+    const databaseId = await verifyDatabaseAccess(req, res);
     if (!databaseId) return;
 
     const { name } = req.params;
@@ -133,7 +133,7 @@ router.post('/generate-enhanced', async (req: Request, res: Response) => {
 // Query param: ?database=<id> (default: "default")
 router.post('/files', async (req: Request, res: Response) => {
   try {
-    const databaseId = verifyDatabaseAccess(req, res);
+    const databaseId = await verifyDatabaseAccess(req, res);
     if (!databaseId) return;
 
     const { fileName, config } = req.body as { fileName: string; config: CubeConfig };

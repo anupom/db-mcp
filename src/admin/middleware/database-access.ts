@@ -8,13 +8,13 @@ import { getDatabaseManager, defaultDatabaseId } from '../../registry/manager.js
  * In self-hosted mode (tenantId undefined), returns the raw query param or 'default'.
  * In SaaS mode, falls back to the tenant's scoped default ID when ?database= is omitted.
  */
-export function verifyDatabaseAccess(req: Request, res: Response): string | null {
+export async function verifyDatabaseAccess(req: Request, res: Response): Promise<string | null> {
   const tenantId = req.tenant?.tenantId;
   const databaseId = (req.query.database as string) || defaultDatabaseId(tenantId);
 
   if (tenantId !== undefined) {
     const manager = getDatabaseManager();
-    const db = manager.getDatabase(databaseId, tenantId);
+    const db = await manager.getDatabase(databaseId, tenantId);
     if (!db) {
       res.status(404).json({ error: `Database '${databaseId}' not found` });
       return null;

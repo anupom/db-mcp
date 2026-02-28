@@ -51,7 +51,7 @@ router.get('/', async (req: Request, res: Response) => {
     const manager = getDatabaseManager();
 
     const tenantId = req.tenant?.tenantId;
-    const databases = manager.listDatabases(tenantId);
+    const databases = await manager.listDatabases(tenantId);
     res.json({ databases });
   } catch (error) {
     console.error('Error listing databases:', error);
@@ -98,7 +98,7 @@ router.get('/:id', async (req: Request, res: Response) => {
 
     const { id } = req.params;
     const tenantId = req.tenant?.tenantId;
-    const database = manager.getDatabase(id, tenantId);
+    const database = await manager.getDatabase(id, tenantId);
 
     if (!database) {
       res.status(404).json({ error: `Database '${id}' not found` });
@@ -176,7 +176,7 @@ router.post('/:id/test', async (req: Request, res: Response) => {
     const tenantId = req.tenant?.tenantId;
 
     // Verify ownership first
-    const db = manager.getDatabase(id, tenantId);
+    const db = await manager.getDatabase(id, tenantId);
     if (!db) {
       res.status(404).json({ success: false, message: `Database '${id}' not found` });
       return;

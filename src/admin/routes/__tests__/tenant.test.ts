@@ -1,15 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import express, { type Request, type Response, type NextFunction } from 'express';
-import { mkdtempSync, rmSync } from 'fs';
-import { join } from 'path';
-import { tmpdir } from 'os';
-
-let tmpDir: string;
+import pg from 'pg';
 
 // Mock config
 vi.mock('../../../config.js', () => ({
   getConfig: () => ({
-    DATA_DIR: tmpDir ?? '/tmp',
+    DATA_DIR: '/tmp',
     CUBE_JWT_SECRET: 'test-secret-that-is-at-least-32-characters-long',
     LOG_LEVEL: 'silent',
   }),
@@ -42,8 +38,11 @@ vi.mock('../../../auth/middleware.js', () => ({
   },
 }));
 
+import { DatabaseStore, initializeDatabaseStore, resetDatabaseStore } from '../../../registry/pg-store.js';
 import tenantRouter from '../tenant.js';
 import { TenantStore, resetTenantStore } from '../../../auth/tenant-store.js';
+
+const TEST_SCHEMA = 'dbmcp';
 
 // Helper to make HTTP-like calls via Express
 function createApp(tenantContext: { tenantId?: string; orgRole?: string }) {
@@ -87,30 +86,40 @@ async function request(app: express.Express, method: 'get' | 'put', path: string
       },
     };
 
-    // Use app.handle for lower-level request processing
     app(req as unknown as express.Request, res as unknown as express.Response);
   });
 }
 
 describe('tenant routes', () => {
+  let pool: pg.Pool;
   let store: TenantStore;
 
-  beforeEach(() => {
-    tmpDir = mkdtempSync(join(tmpdir(), 'dbmcp-tenant-route-'));
-    authEnabled = true;
+  beforeEach(async () => {
+    const connectionString = process.env.DATABASE_URL
+      || `postgresql://${process.env.POSTGRES_USER ?? 'cube'}:${process.env.POSTGRES_PASSWORD ?? 'cube'}@${process.env.POSTGRES_HOST ?? 'localhost'}:${process.env.POSTGRES_PORT ?? '5432'}/${process.env.POSTGRES_DB ?? 'ecom'}`;
+    pool = new pg.Pool({ connectionString });
+    const pgStore = new DatabaseStore(pool);
+    await pgStore.initialize();
+    resetDatabaseStore();
+    await initializeDatabaseStore();
     resetTenantStore();
-    store = new TenantStore(join(tmpDir, 'config.db'));
+    store = new TenantStore();
+    authEnabled = true;
+
+    // Clean up test data
+    await pool.query(`DELETE FROM ${TEST_SCHEMA}.tenants`);
   });
 
-  afterEach(() => {
-    store.close();
+  afterEach(async () => {
+    await pool.query(`DELETE FROM ${TEST_SCHEMA}.tenants`);
+    await pool.end();
     resetTenantStore();
-    rmSync(tmpDir, { recursive: true, force: true });
+    resetDatabaseStore();
   });
 
   describe('GET /tenant', () => {
     it('returns tenant info', async () => {
-      store.create('org_get', 'my-org', 'My Organization');
+      await store.create('org_get', 'my-org', 'My Organization');
       const app = createApp({ tenantId: 'org_get', orgRole: 'org:member' });
 
       const res = await request(app, 'get', '/tenant');
@@ -136,7 +145,7 @@ describe('tenant routes', () => {
 
   describe('PUT /tenant/slug', () => {
     it('updates slug for org admin', async () => {
-      store.create('org_update', 'old-slug', 'My Org');
+      await store.create('org_update', 'old-slug', 'My Org');
       const app = createApp({ tenantId: 'org_update', orgRole: 'org:admin' });
 
       const res = await request(app, 'put', '/tenant/slug', { slug: 'new-slug' });
@@ -145,12 +154,12 @@ describe('tenant routes', () => {
       expect(res.body.slug).toBe('new-slug');
 
       // Verify persisted
-      const tenant = store.getById('org_update');
+      const tenant = await store.getById('org_update');
       expect(tenant!.slug).toBe('new-slug');
     });
 
     it('returns 403 for non-admin', async () => {
-      store.create('org_nonadmin', 'some-slug');
+      await store.create('org_nonadmin', 'some-slug');
       const app = createApp({ tenantId: 'org_nonadmin', orgRole: 'org:member' });
 
       const res = await request(app, 'put', '/tenant/slug', { slug: 'new-slug' });
@@ -158,12 +167,12 @@ describe('tenant routes', () => {
       expect(res.status).toBe(403);
 
       // Slug unchanged
-      const tenant = store.getById('org_nonadmin');
+      const tenant = await store.getById('org_nonadmin');
       expect(tenant!.slug).toBe('some-slug');
     });
 
     it('returns 400 for invalid slug format', async () => {
-      store.create('org_invalid', 'valid-slug');
+      await store.create('org_invalid', 'valid-slug');
       const app = createApp({ tenantId: 'org_invalid', orgRole: 'org:admin' });
 
       // Too short
@@ -181,7 +190,7 @@ describe('tenant routes', () => {
     });
 
     it('returns 400 when slug is missing', async () => {
-      store.create('org_missing_slug', 'existing');
+      await store.create('org_missing_slug', 'existing');
       const app = createApp({ tenantId: 'org_missing_slug', orgRole: 'org:admin' });
 
       const res = await request(app, 'put', '/tenant/slug', {});
@@ -190,8 +199,8 @@ describe('tenant routes', () => {
     });
 
     it('returns 409 when slug is taken by another tenant', async () => {
-      store.create('org_a', 'taken-slug');
-      store.create('org_b', 'other-slug');
+      await store.create('org_a', 'taken-slug');
+      await store.create('org_b', 'other-slug');
       const app = createApp({ tenantId: 'org_b', orgRole: 'org:admin' });
 
       const res = await request(app, 'put', '/tenant/slug', { slug: 'taken-slug' });
@@ -200,12 +209,12 @@ describe('tenant routes', () => {
       expect(res.body.error).toContain('already taken');
 
       // Original slug unchanged
-      const tenant = store.getById('org_b');
+      const tenant = await store.getById('org_b');
       expect(tenant!.slug).toBe('other-slug');
     });
 
     it('allows setting same slug (no-op)', async () => {
-      store.create('org_noop', 'same-slug');
+      await store.create('org_noop', 'same-slug');
       const app = createApp({ tenantId: 'org_noop', orgRole: 'org:admin' });
 
       const res = await request(app, 'put', '/tenant/slug', { slug: 'same-slug' });

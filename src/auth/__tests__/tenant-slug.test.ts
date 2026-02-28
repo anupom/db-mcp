@@ -86,41 +86,41 @@ describe('slugifyName', () => {
 });
 
 describe('generateUniqueSlug', () => {
-  it('returns base slug when no collision', () => {
-    const slug = generateUniqueSlug('org_acme', () => false);
+  it('returns base slug when no collision', async () => {
+    const slug = await generateUniqueSlug('org_acme', () => false);
     expect(slug).toBe('org-acme');
   });
 
-  it('appends suffix on collision', () => {
+  it('appends suffix on collision', async () => {
     const taken = new Set(['org-acme']);
-    const slug = generateUniqueSlug('org_acme', (s) => taken.has(s));
+    const slug = await generateUniqueSlug('org_acme', (s) => taken.has(s));
     expect(slug).toBe('org-acme-2');
   });
 
-  it('increments suffix on multiple collisions', () => {
+  it('increments suffix on multiple collisions', async () => {
     const taken = new Set(['org-acme', 'org-acme-2', 'org-acme-3']);
-    const slug = generateUniqueSlug('org_acme', (s) => taken.has(s));
+    const slug = await generateUniqueSlug('org_acme', (s) => taken.has(s));
     expect(slug).toBe('org-acme-4');
   });
 
-  it('uses preferredSlug when provided and valid', () => {
-    const slug = generateUniqueSlug('org_abc123', () => false, 'acme-corp');
+  it('uses preferredSlug when provided and valid', async () => {
+    const slug = await generateUniqueSlug('org_abc123', () => false, 'acme-corp');
     expect(slug).toBe('acme-corp');
   });
 
-  it('falls back to orgId slug when preferredSlug is invalid', () => {
-    const slug = generateUniqueSlug('org_acme', () => false, 'ab'); // too short
+  it('falls back to orgId slug when preferredSlug is invalid', async () => {
+    const slug = await generateUniqueSlug('org_acme', () => false, 'ab'); // too short
     expect(slug).toBe('org-acme');
   });
 
-  it('falls back to orgId slug when preferredSlug is null', () => {
-    const slug = generateUniqueSlug('org_acme', () => false, null);
+  it('falls back to orgId slug when preferredSlug is null', async () => {
+    const slug = await generateUniqueSlug('org_acme', () => false, null);
     expect(slug).toBe('org-acme');
   });
 
-  it('handles collision on preferredSlug with suffix', () => {
+  it('handles collision on preferredSlug with suffix', async () => {
     const taken = new Set(['acme-corp']);
-    const slug = generateUniqueSlug('org_abc123', (s) => taken.has(s), 'acme-corp');
+    const slug = await generateUniqueSlug('org_abc123', (s) => taken.has(s), 'acme-corp');
     expect(slug).toBe('acme-corp-2');
   });
 });
