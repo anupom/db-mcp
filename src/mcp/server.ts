@@ -8,8 +8,9 @@ import fs from 'fs';
 import { getLogger } from '../utils/logger.js';
 import { getConfig } from '../config.js';
 import { getDatabaseManager } from '../registry/manager.js';
+import { getDatabaseStore } from '../registry/pg-store.js';
 import { DatabaseMcpHandler } from './handler.js';
-import adminRoutes, { healthCheck } from '../admin/index.js';
+import adminRoutes from '../admin/index.js';
 import { clerkSessionMiddleware } from '../auth/middleware.js';
 import { validateMcpApiKey } from '../auth/api-key-middleware.js';
 import { isAuthEnabled } from '../auth/config.js';
@@ -157,20 +158,33 @@ export class McpServer {
     const publicDir = path.join(process.cwd(), 'public');
     const hasPublicDir = fs.existsSync(publicDir);
 
-    // Health check endpoint (enhanced with database check)
-    app.get('/health', async (req, res) => {
-      const databaseId = (req.query.database as string) || 'default';
-      const dbHealthy = await healthCheck(databaseId);
-      const status = dbHealthy ? 'healthy' : 'unhealthy';
-      res.status(dbHealthy ? 200 : 503).json({
-        status,
+    // Health check endpoint — checks server, PostgreSQL store, and Cube.js
+    app.get('/health', async (_req, res) => {
+      const services: Record<string, string> = {};
+
+      // Check PostgreSQL store connectivity
+      try {
+        const store = getDatabaseStore();
+        await store.getPool().query('SELECT 1');
+        services.postgres = 'connected';
+      } catch {
+        services.postgres = 'disconnected';
+      }
+
+      // Check Cube.js API availability
+      try {
+        const cubeUrl = getConfig().CUBE_API_URL || 'http://localhost:4000/cubejs-api/v1';
+        const cubeRes = await fetch(`${cubeUrl.replace('/cubejs-api/v1', '')}/readyz`, { signal: AbortSignal.timeout(3000) });
+        services.cubejs = cubeRes.ok ? 'connected' : 'unavailable';
+      } catch {
+        services.cubejs = 'unavailable';
+      }
+
+      const allHealthy = services.postgres === 'connected';
+      res.status(allHealthy ? 200 : 503).json({
+        status: allHealthy ? 'healthy' : 'unhealthy',
         timestamp: new Date().toISOString(),
-        databaseId,
-        transport: 'http',
-        databases: dbTransports.size,
-        services: {
-          database: dbHealthy ? 'connected' : 'disconnected',
-        },
+        services,
       });
     });
 
