@@ -1,10 +1,12 @@
 import { useState } from 'react';
 import { X, Database, Loader2 } from 'lucide-react';
-import { databasesApi, type DatabaseType, type CreateDatabaseInput } from '../../api/client';
+import { databasesApi, type DatabaseType, type CreateDatabaseInput, type DatabaseConfig } from '../../api/client';
 
 interface Props {
   onClose: () => void;
   onSuccess: () => void;
+  /** When provided, the modal operates in edit mode */
+  editDatabase?: DatabaseConfig;
 }
 
 const DB_TYPES: { value: DatabaseType; label: string }[] = [
@@ -16,30 +18,32 @@ const DB_TYPES: { value: DatabaseType; label: string }[] = [
   { value: 'clickhouse', label: 'ClickHouse' },
 ];
 
-export default function DatabaseFormModal({ onClose, onSuccess }: Props) {
+export default function DatabaseFormModal({ onClose, onSuccess, editDatabase }: Props) {
+  const isEdit = !!editDatabase;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Form state
-  const [id, setId] = useState('');
-  const [name, setName] = useState('');
-  const [description, setDescription] = useState('');
-  const [dbType, setDbType] = useState<DatabaseType>('postgres');
-  const [host, setHost] = useState('localhost');
-  const [port, setPort] = useState('5432');
-  const [database, setDatabase] = useState('');
-  const [user, setUser] = useState('');
-  const [password, setPassword] = useState('');
-  const [ssl, setSsl] = useState(false);
+  // Form state — pre-fill from editDatabase when editing
+  const conn = editDatabase?.connection;
+  const [id, setId] = useState(editDatabase?.id ?? '');
+  const [name, setName] = useState(editDatabase?.name ?? '');
+  const [description, setDescription] = useState(editDatabase?.description ?? '');
+  const [dbType, setDbType] = useState<DatabaseType>(conn?.type ?? 'postgres');
+  const [host, setHost] = useState(conn?.host ?? 'localhost');
+  const [port, setPort] = useState(String(conn?.port ?? '5432'));
+  const [database, setDatabase] = useState(conn?.database ?? '');
+  const [user, setUser] = useState(conn?.user ?? '');
+  const [password, setPassword] = useState(isEdit ? '' : '');
+  const [ssl, setSsl] = useState(conn?.ssl ?? false);
 
   // Cloud-specific fields
-  const [projectId, setProjectId] = useState('');
-  const [account, setAccount] = useState('');
-  const [warehouse, setWarehouse] = useState('');
+  const [projectId, setProjectId] = useState(conn?.projectId ?? '');
+  const [account, setAccount] = useState(conn?.account ?? '');
+  const [warehouse, setWarehouse] = useState(conn?.warehouse ?? '');
 
   // Advanced settings
-  const [maxLimit, setMaxLimit] = useState('1000');
-  const [cubeApiUrl, setCubeApiUrl] = useState('');
+  const [maxLimit, setMaxLimit] = useState(String(editDatabase?.maxLimit ?? '1000'));
+  const [cubeApiUrl, setCubeApiUrl] = useState(editDatabase?.cubeApiUrl ?? '');
   const [jwtSecret, setJwtSecret] = useState('');
 
   const getDefaultPort = (type: DatabaseType): string => {
@@ -67,44 +71,90 @@ export default function DatabaseFormModal({ onClose, onSuccess }: Props) {
     setLoading(true);
 
     try {
-      const input: CreateDatabaseInput = {
-        id: id.toLowerCase().replace(/\s+/g, '-'),
-        name,
-        description: description || undefined,
-        connection: {
-          type: dbType,
-        },
-        maxLimit: parseInt(maxLimit) || 1000,
-        cubeApiUrl: cubeApiUrl || undefined,
-        jwtSecret: jwtSecret || undefined,
-      };
+      if (isEdit) {
+        // Build partial update — only include changed fields
+        const update: Partial<CreateDatabaseInput> = {
+          name,
+          description: description || undefined,
+          connection: { type: dbType },
+          maxLimit: parseInt(maxLimit) || 1000,
+          cubeApiUrl: cubeApiUrl || undefined,
+          jwtSecret: jwtSecret || undefined,
+        };
 
-      // Add connection details based on type
-      if (['postgres', 'mysql', 'redshift', 'clickhouse'].includes(dbType)) {
-        input.connection.host = host;
-        input.connection.port = parseInt(port);
-        input.connection.database = database;
-        input.connection.user = user;
-        input.connection.password = password;
-        input.connection.ssl = ssl;
+        if (['postgres', 'mysql', 'redshift', 'clickhouse'].includes(dbType)) {
+          update.connection!.host = host;
+          update.connection!.port = parseInt(port);
+          update.connection!.database = database;
+          update.connection!.user = user;
+          // Only send password if the user actually typed a new one
+          if (password) {
+            update.connection!.password = password;
+          }
+          update.connection!.ssl = ssl;
+        }
+
+        if (dbType === 'bigquery') {
+          update.connection!.projectId = projectId;
+        }
+
+        if (dbType === 'snowflake') {
+          update.connection!.account = account;
+          update.connection!.warehouse = warehouse;
+          update.connection!.database = database;
+          update.connection!.user = user;
+          if (password) {
+            update.connection!.password = password;
+          }
+        }
+
+        // Strip undefined jwtSecret so we don't clear it
+        if (!jwtSecret) {
+          delete update.jwtSecret;
+        }
+
+        await databasesApi.update(editDatabase!.id, update);
+      } else {
+        const input: CreateDatabaseInput = {
+          id: id.toLowerCase().replace(/\s+/g, '-'),
+          name,
+          description: description || undefined,
+          connection: {
+            type: dbType,
+          },
+          maxLimit: parseInt(maxLimit) || 1000,
+          cubeApiUrl: cubeApiUrl || undefined,
+          jwtSecret: jwtSecret || undefined,
+        };
+
+        // Add connection details based on type
+        if (['postgres', 'mysql', 'redshift', 'clickhouse'].includes(dbType)) {
+          input.connection.host = host;
+          input.connection.port = parseInt(port);
+          input.connection.database = database;
+          input.connection.user = user;
+          input.connection.password = password;
+          input.connection.ssl = ssl;
+        }
+
+        if (dbType === 'bigquery') {
+          input.connection.projectId = projectId;
+        }
+
+        if (dbType === 'snowflake') {
+          input.connection.account = account;
+          input.connection.warehouse = warehouse;
+          input.connection.database = database;
+          input.connection.user = user;
+          input.connection.password = password;
+        }
+
+        await databasesApi.create(input);
       }
 
-      if (dbType === 'bigquery') {
-        input.connection.projectId = projectId;
-      }
-
-      if (dbType === 'snowflake') {
-        input.connection.account = account;
-        input.connection.warehouse = warehouse;
-        input.connection.database = database;
-        input.connection.user = user;
-        input.connection.password = password;
-      }
-
-      await databasesApi.create(input);
       onSuccess();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create database');
+      setError(err instanceof Error ? err.message : `Failed to ${isEdit ? 'update' : 'create'} database`);
     } finally {
       setLoading(false);
     }
@@ -121,7 +171,7 @@ export default function DatabaseFormModal({ onClose, onSuccess }: Props) {
         <div className="flex items-center justify-between p-4 border-b">
           <h2 className="text-lg font-semibold flex items-center gap-2">
             <Database className="w-5 h-5" />
-            Add Database
+            {isEdit ? 'Edit Database' : 'Add Database'}
           </h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
             <X className="w-5 h-5" />
@@ -145,12 +195,13 @@ export default function DatabaseFormModal({ onClose, onSuccess }: Props) {
                   type="text"
                   value={id}
                   onChange={(e) => setId(e.target.value)}
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:text-gray-500"
                   placeholder="my-database"
                   pattern="[a-z0-9-]+"
                   required
+                  disabled={isEdit}
                 />
-                <p className="text-xs text-gray-500 mt-1">URL-safe ID (lowercase, hyphens)</p>
+                {!isEdit && <p className="text-xs text-gray-500 mt-1">URL-safe ID (lowercase, hyphens)</p>}
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -254,14 +305,15 @@ export default function DatabaseFormModal({ onClose, onSuccess }: Props) {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Password <span className="text-red-500">*</span>
+                      Password {!isEdit && <span className="text-red-500">*</span>}
                     </label>
                     <input
                       type="password"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      required
+                      placeholder={isEdit ? 'Leave empty to keep current' : ''}
+                      required={!isEdit}
                     />
                   </div>
                 </div>
@@ -355,14 +407,15 @@ export default function DatabaseFormModal({ onClose, onSuccess }: Props) {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Password <span className="text-red-500">*</span>
+                      Password {!isEdit && <span className="text-red-500">*</span>}
                     </label>
                     <input
                       type="password"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      required
+                      placeholder={isEdit ? 'Leave empty to keep current' : ''}
+                      required={!isEdit}
                     />
                   </div>
                 </div>
@@ -411,7 +464,7 @@ export default function DatabaseFormModal({ onClose, onSuccess }: Props) {
                     value={jwtSecret}
                     onChange={(e) => setJwtSecret(e.target.value)}
                     className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="Leave empty to use global secret"
+                    placeholder={isEdit ? 'Leave empty to keep current' : 'Leave empty to use global secret'}
                   />
                   <p className="text-xs text-gray-500 mt-1">
                     Must be at least 32 characters if provided
@@ -437,7 +490,7 @@ export default function DatabaseFormModal({ onClose, onSuccess }: Props) {
               className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
             >
               {loading && <Loader2 className="w-4 h-4 animate-spin" />}
-              Create Database
+              {isEdit ? 'Save Changes' : 'Create Database'}
             </button>
           </div>
         </form>

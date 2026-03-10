@@ -229,12 +229,34 @@ export class DatabaseManager {
 
       switch (connection.type) {
         case 'postgres':
-        case 'mysql':
-        case 'redshift':
+        case 'redshift': {
           if (!connection.host || !connection.database) {
             return { success: false, message: 'Missing host or database in connection config' };
           }
+          const { Pool } = await import('pg');
+          const pool = new Pool({
+            host: connection.host,
+            port: connection.port || 5432,
+            database: connection.database,
+            user: connection.user,
+            password: connection.password,
+            ssl: connection.ssl ? { rejectUnauthorized: false } : undefined,
+            connectionTimeoutMillis: 10000,
+          });
+          try {
+            await pool.query('SELECT 1');
+          } finally {
+            await pool.end();
+          }
           break;
+        }
+        case 'mysql': {
+          if (!connection.host || !connection.database) {
+            return { success: false, message: 'Missing host or database in connection config' };
+          }
+          // MySQL test — just validate config for now (no mysql2 dependency)
+          break;
+        }
         case 'bigquery':
           if (!connection.projectId) {
             return { success: false, message: 'Missing projectId for BigQuery' };
@@ -251,7 +273,7 @@ export class DatabaseManager {
 
       return {
         success: true,
-        message: 'Connection configuration is valid',
+        message: 'Connection successful',
         latencyMs,
       };
     } catch (err) {

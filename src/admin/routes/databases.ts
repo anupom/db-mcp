@@ -121,6 +121,15 @@ router.put('/:id', async (req: Request, res: Response) => {
     const { id } = req.params;
     const tenantId = req.tenant?.tenantId;
     const input = UpdateDatabaseSchema.parse(req.body);
+
+    // Preserve existing password if not provided in update
+    if (input.connection && !input.connection.password) {
+      const existing = await manager.getDatabase(id, tenantId);
+      if (existing?.connection.password) {
+        input.connection.password = existing.connection.password;
+      }
+    }
+
     const database = await manager.updateDatabase({ id, ...input }, tenantId);
 
     if (!database) {

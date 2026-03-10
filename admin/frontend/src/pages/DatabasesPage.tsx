@@ -7,6 +7,7 @@ import {
   Square,
   Trash2,
   Settings,
+  Pencil,
   CheckCircle,
   XCircle,
   AlertCircle,
@@ -15,6 +16,7 @@ import {
 import {
   databasesApi,
   type DatabaseSummary,
+  type DatabaseConfig,
   type DatabaseStatus,
   type DatabaseType,
 } from '../api/client';
@@ -52,6 +54,7 @@ export default function DatabasesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [editingDatabase, setEditingDatabase] = useState<DatabaseConfig | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
   const { slug: tenantSlug } = useTenantSlug();
@@ -135,6 +138,24 @@ export default function DatabasesPage() {
     } finally {
       setActionLoading(null);
     }
+  };
+
+  const handleEdit = async (id: string) => {
+    try {
+      setActionLoading(id);
+      const response = await databasesApi.get(id);
+      setEditingDatabase(response.database);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to load database details');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleDatabaseUpdated = () => {
+    setEditingDatabase(null);
+    fetchDatabases();
+    refetchDatabases();
   };
 
   const handleDatabaseCreated = () => {
@@ -309,6 +330,13 @@ export default function DatabasesPage() {
                         ) : (
                           <>
                             <button
+                              onClick={() => handleEdit(db.id)}
+                              className="text-gray-400 hover:text-blue-600"
+                              title="Edit Connection"
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </button>
+                            <button
                               onClick={() => handleTest(db.id)}
                               className="text-gray-400 hover:text-gray-600"
                               title="Test Connection"
@@ -371,6 +399,15 @@ export default function DatabasesPage() {
         <DatabaseFormModal
           onClose={() => setShowCreateModal(false)}
           onSuccess={handleDatabaseCreated}
+        />
+      )}
+
+      {/* Edit Modal */}
+      {editingDatabase && (
+        <DatabaseFormModal
+          editDatabase={editingDatabase}
+          onClose={() => setEditingDatabase(null)}
+          onSuccess={handleDatabaseUpdated}
         />
       )}
 
