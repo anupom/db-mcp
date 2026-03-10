@@ -314,9 +314,9 @@ export default function DatabasesPage() {
                         <span className="capitalize">{db.status}</span>
                       </span>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="px-6 py-4">
                       {db.status === 'active' ? (
-                        <code className="text-sm bg-gray-100 px-2 py-1 rounded">
+                        <code className="text-sm bg-gray-100 px-2 py-1 rounded block truncate max-w-[280px]" title={buildMcpUrl(db.id, tenantSlug)}>
                           {buildMcpUrl(db.id, tenantSlug)}
                         </code>
                       ) : (
