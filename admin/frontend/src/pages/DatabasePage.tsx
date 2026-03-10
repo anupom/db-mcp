@@ -31,7 +31,7 @@ export default function DatabasePage() {
     setGeneratedConfig(null);
   }, [databaseId]);
 
-  const { data: tables, isLoading: tablesLoading } = useQuery({
+  const { data: tables, isLoading: tablesLoading, error: tablesError } = useQuery({
     queryKey: ['tables', databaseId],
     queryFn: () => databaseApi.getTables(databaseId!),
     enabled: !!databaseId,
@@ -304,6 +304,11 @@ export default function DatabasePage() {
             {tablesLoading ? (
               <div className="flex items-center justify-center py-8">
                 <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+              </div>
+            ) : tablesError ? (
+              <div className="flex items-center gap-2 text-red-600 text-sm">
+                <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                <span>{tablesError instanceof Error ? tablesError.message : 'Failed to load tables'}</span>
               </div>
             ) : (
               <TableList

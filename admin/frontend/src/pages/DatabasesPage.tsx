@@ -20,6 +20,7 @@ import {
 } from '../api/client';
 import { useTenantSlug } from '../hooks/useTenantSlug';
 import { buildMcpUrl } from '../utils/mcp-url';
+import { useDatabaseContext } from '../context/DatabaseContext';
 import DatabaseFormModal from '../components/databases/DatabaseFormModal';
 
 
@@ -54,6 +55,7 @@ export default function DatabasesPage() {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
   const { slug: tenantSlug } = useTenantSlug();
+  const { refetchDatabases } = useDatabaseContext();
 
   const fetchDatabases = async () => {
     try {
@@ -84,6 +86,7 @@ export default function DatabasesPage() {
       setActionLoading(id);
       await databasesApi.activate(id);
       await fetchDatabases();
+      refetchDatabases();
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to activate database');
     } finally {
@@ -96,6 +99,7 @@ export default function DatabasesPage() {
       setActionLoading(id);
       await databasesApi.deactivate(id);
       await fetchDatabases();
+      refetchDatabases();
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to deactivate database');
     } finally {
@@ -113,6 +117,7 @@ export default function DatabasesPage() {
       setActionLoading(id);
       await databasesApi.delete(id);
       await fetchDatabases();
+      refetchDatabases();
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to delete database');
     } finally {
@@ -135,6 +140,7 @@ export default function DatabasesPage() {
   const handleDatabaseCreated = () => {
     setShowCreateModal(false);
     fetchDatabases();
+    refetchDatabases();
   };
 
   if (loading && databases.length === 0) {
@@ -235,7 +241,7 @@ export default function DatabasesPage() {
 
       {/* Database list */}
       {databases.length > 0 && (
-        <div className="bg-white rounded-lg shadow overflow-hidden">
+        <div className="bg-white rounded-lg shadow overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
