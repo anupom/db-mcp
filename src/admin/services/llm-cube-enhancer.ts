@@ -81,5 +81,6 @@ Focus on making this cube understandable to business analysts who need to build 
     description: object.description,
     measures: object.measures as MeasureConfig[],
     dimensions: object.dimensions as DimensionConfig[],
+    joins: initialConfig.joins,
   };
 }

@@ -113,6 +113,11 @@ export interface CubeConfig {
     title?: string;
     primary_key?: boolean;
   }>;
+  joins?: Array<{
+    name: string;
+    sql: string;
+    relationship: string;
+  }>;
 }
 
 export const cubesApi = {

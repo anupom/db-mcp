@@ -148,6 +148,14 @@ export default function DatabasePage() {
         const sample = await databaseApi.getSampleData(databaseId!, table.table_name);
 
         // Step 3: Build initial config from rules
+        const joins = details.foreignKeys
+          .filter(fk => fk.foreign_table_name !== table.table_name)
+          .map(fk => ({
+            name: fk.foreign_table_name,
+            sql: `{CUBE}.${fk.column_name} = {${fk.foreign_table_name}.${fk.foreign_column_name}}`,
+            relationship: 'many_to_one' as const,
+          }));
+
         const initialConfig: CubeConfig = {
           name: table.table_name,
           sql_table: table.table_name,
@@ -164,6 +172,7 @@ export default function DatabasePage() {
             title: d.title,
             primary_key: d.primaryKey,
           })),
+          ...(joins.length > 0 && { joins }),
         };
 
         // Step 4: Enhance with LLM (with fallback to rule-based)

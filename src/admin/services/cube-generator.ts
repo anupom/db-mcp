@@ -29,6 +29,12 @@ export interface SegmentConfig {
   description?: string;
 }
 
+export interface JoinConfig {
+  name: string;
+  sql: string;
+  relationship: 'many_to_one' | 'one_to_many' | 'one_to_one';
+}
+
 export interface CubeConfig {
   name: string;
   sql_table: string;
@@ -37,6 +43,7 @@ export interface CubeConfig {
   measures: MeasureConfig[];
   dimensions: DimensionConfig[];
   segments?: SegmentConfig[];
+  joins?: JoinConfig[];
 }
 
 export function generateCubeYaml(config: CubeConfig): string {
@@ -71,6 +78,13 @@ export function generateCubeYaml(config: CubeConfig): string {
             sql: s.sql,
             ...(s.title && { title: s.title }),
             ...(s.description && { description: s.description }),
+          })),
+        }),
+        ...(config.joins && config.joins.length > 0 && {
+          joins: config.joins.map((j) => ({
+            name: j.name,
+            sql: j.sql,
+            relationship: j.relationship,
           })),
         }),
         pre_aggregations: [],
