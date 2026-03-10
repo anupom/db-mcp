@@ -9,6 +9,16 @@ export function setTokenGetter(fn: (() => Promise<string | null>) | null) {
   getTokenFn = fn;
 }
 
+export async function getAuthHeaders(): Promise<Record<string, string>> {
+  if (getTokenFn) {
+    const token = await getTokenFn();
+    if (token) {
+      return { Authorization: `Bearer ${token}` };
+    }
+  }
+  return {};
+}
+
 async function fetchApi<T>(endpoint: string, options?: RequestInit): Promise<T> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
