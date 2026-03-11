@@ -26,7 +26,7 @@ export default function ChatMessage({ message }: ChatMessageProps) {
   const textContent = message.parts
     ?.filter((part): part is { type: 'text'; text: string } => part.type === 'text')
     .map((part) => part.text)
-    .join('') || '';
+    .join('\n\n') || '';
 
   // Extract tool invocations from parts
   const toolInvocations = (message.parts?.filter(
