@@ -1,6 +1,8 @@
 import { Bot, User, Wrench, ChevronDown, ChevronRight } from 'lucide-react';
 import { useState } from 'react';
 import type { UIMessage } from 'ai';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import ToolResultDisplay from './ToolResultDisplay';
 
 interface ChatMessageProps {
@@ -47,7 +49,13 @@ export default function ChatMessage({ message }: ChatMessageProps) {
               ? 'bg-blue-600 text-white'
               : 'bg-gray-100 text-gray-800'
           }`}>
-            <div className="whitespace-pre-wrap text-sm">{textContent}</div>
+            {isUser ? (
+              <div className="whitespace-pre-wrap text-sm">{textContent}</div>
+            ) : (
+              <div className="prose prose-sm prose-gray max-w-none prose-pre:bg-gray-800 prose-pre:text-gray-100 prose-code:before:content-none prose-code:after:content-none prose-code:bg-gray-200 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-gray-800 prose-code:font-mono prose-code:text-xs">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{textContent}</ReactMarkdown>
+              </div>
+            )}
           </div>
         )}
 

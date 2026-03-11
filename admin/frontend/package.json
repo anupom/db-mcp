@@ -11,6 +11,7 @@
     "@ai-sdk/react": "^3.0.79",
     "@clerk/clerk-react": "^5.61.1",
     "@monaco-editor/react": "^4.6.0",
+    "@tailwindcss/typography": "^0.5.19",
     "@tanstack/react-query": "^5.56.2",
     "@tanstack/react-table": "^8.20.5",
     "ai": "^6.0.77",
@@ -19,7 +20,9 @@
     "lucide-react": "^0.446.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "react-markdown": "^10.1.0",
     "react-router-dom": "^6.26.2",
+    "remark-gfm": "^4.0.1",
     "tailwind-merge": "^2.5.2"
   },
   "devDependencies": {
